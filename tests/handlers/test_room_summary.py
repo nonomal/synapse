@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+#  Copyright 2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -753,6 +754,54 @@ class SpaceSummaryTestCase(unittest.HomeserverTestCase):
         ):
             result = self.get_success(
                 self.handler.get_room_hierarchy(create_requester(self.user), self.space)
+            )
+        self._assert_hierarchy(result, expected)
+
+    def test_fed_root(self) -> None:
+        """
+        Test if requested room is available over federation.
+        """
+        fed_hostname = self.hs.hostname + "2"
+        fed_space = "#fed_space:" + fed_hostname
+        fed_subroom = "#fed_sub_room:" + fed_hostname
+
+        requested_room_entry = _RoomEntry(
+            fed_space,
+            {
+                "room_id": fed_space,
+                "world_readable": True,
+                "room_type": RoomTypes.SPACE,
+            },
+            [
+                {
+                    "type": EventTypes.SpaceChild,
+                    "room_id": fed_space,
+                    "state_key": fed_subroom,
+                    "content": {"via": [fed_hostname]},
+                }
+            ],
+        )
+        child_room = {
+            "room_id": fed_subroom,
+            "world_readable": True,
+        }
+
+        async def summarize_remote_room_hierarchy(
+            _self: Any, room: Any, suggested_only: bool
+        ) -> Tuple[Optional[_RoomEntry], Dict[str, JsonDict], Set[str]]:
+            return requested_room_entry, {fed_subroom: child_room}, set()
+
+        expected = [
+            (fed_space, [fed_subroom]),
+            (fed_subroom, ()),
+        ]
+
+        with mock.patch(
+            "synapse.handlers.room_summary.RoomSummaryHandler._summarize_remote_room_hierarchy",
+            new=summarize_remote_room_hierarchy,
+        ):
+            result = self.get_success(
+                self.handler.get_room_hierarchy(create_requester(self.user), fed_space)
             )
         self._assert_hierarchy(result, expected)
 

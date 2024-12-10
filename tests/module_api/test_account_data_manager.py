@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2022 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -163,6 +164,8 @@ class ModuleApiTestCase(HomeserverTestCase):
             # noinspection PyTypeChecker
             self.get_success_or_raise(
                 self._module_api.account_data_manager.put_global(
-                    self.user_id, "test.data", 42  # type: ignore[arg-type]
+                    self.user_id,
+                    "test.data",
+                    42,  # type: ignore[arg-type]
                 )
             )

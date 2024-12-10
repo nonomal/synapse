@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,7 +20,7 @@
 #
 #
 
-""" Thread-local-alike tracking of log contexts within synapse
+"""Thread-local-alike tracking of log contexts within synapse
 
 This module provides objects and utilities for tracking contexts through
 synapse code, so that log lines can include a request identifier, and so that
@@ -27,6 +29,7 @@ them.
 
 See doc/log_contexts.rst for details on how this works.
 """
+
 import logging
 import threading
 import typing
@@ -34,6 +37,7 @@ import warnings
 from types import TracebackType
 from typing import (
     TYPE_CHECKING,
+    Any,
     Awaitable,
     Callable,
     Optional,
@@ -742,15 +746,14 @@ def preserve_fn(
 
 
 @overload
-def preserve_fn(f: Callable[P, R]) -> Callable[P, "defer.Deferred[R]"]:
-    ...
+def preserve_fn(f: Callable[P, R]) -> Callable[P, "defer.Deferred[R]"]: ...
 
 
 def preserve_fn(
     f: Union[
         Callable[P, R],
         Callable[P, Awaitable[R]],
-    ]
+    ],
 ) -> Callable[P, "defer.Deferred[R]"]:
     """Function decorator which wraps the function with run_in_background"""
 
@@ -772,15 +775,10 @@ def run_in_background(
 @overload
 def run_in_background(
     f: Callable[P, R], *args: P.args, **kwargs: P.kwargs
-) -> "defer.Deferred[R]":
-    ...
+) -> "defer.Deferred[R]": ...
 
 
-def run_in_background(  # type: ignore[misc]
-    # The `type: ignore[misc]` above suppresses
-    # "Overloaded function implementation does not accept all possible arguments of signature 1"
-    # "Overloaded function implementation does not accept all possible arguments of signature 2"
-    # which seems like a bug in mypy.
+def run_in_background(
     f: Union[
         Callable[P, R],
         Callable[P, Awaitable[R]],
@@ -832,6 +830,45 @@ def run_in_background(  # type: ignore[misc]
         # The function should have maintained the logcontext, so we can
         # optimise out the messing about
         return d
+
+    # The function may have reset the context before returning, so
+    # we need to restore it now.
+    ctx = set_current_context(current)
+
+    # The original context will be restored when the deferred
+    # completes, but there is nothing waiting for it, so it will
+    # get leaked into the reactor or some other function which
+    # wasn't expecting it. We therefore need to reset the context
+    # here.
+    #
+    # (If this feels asymmetric, consider it this way: we are
+    # effectively forking a new thread of execution. We are
+    # probably currently within a ``with LoggingContext()`` block,
+    # which is supposed to have a single entry and exit point. But
+    # by spawning off another deferred, we are effectively
+    # adding a new exit point.)
+    d.addBoth(_set_context_cb, ctx)
+    return d
+
+
+def run_coroutine_in_background(
+    coroutine: typing.Coroutine[Any, Any, R],
+) -> "defer.Deferred[R]":
+    """Run the coroutine, ensuring that the current context is restored after
+    return from the function, and that the sentinel context is set once the
+    deferred returned by the function completes.
+
+    Useful for wrapping coroutines that you don't yield or await on (for
+    instance because you want to pass it to deferred.gatherResults()).
+
+    This is a special case of `run_in_background` where we can accept a
+    coroutine directly rather than a function. We can do this because coroutines
+    do not run until called, and so calling an async function without awaiting
+    cannot change the log contexts.
+    """
+
+    current = current_context()
+    d = defer.ensureDeferred(coroutine)
 
     # The function may have reset the context before returning, so
     # we need to restore it now.

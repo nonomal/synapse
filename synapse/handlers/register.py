@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
+# Copyright 2014 - 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -588,7 +590,7 @@ class RegistrationHandler:
                 # moving away from bare excepts is a good thing to do.
                 logger.error("Failed to join new user to %r: %r", r, e)
             except Exception as e:
-                logger.error("Failed to join new user to %r: %r", r, e)
+                logger.error("Failed to join new user to %r: %r", r, e, exc_info=True)
 
     async def _auto_join_rooms(self, user_id: str) -> None:
         """Automatically joins users to auto join rooms - creating the room in the first place
@@ -628,7 +630,9 @@ class RegistrationHandler:
         """
         await self._auto_join_rooms(user_id)
 
-    async def appservice_register(self, user_localpart: str, as_token: str) -> str:
+    async def appservice_register(
+        self, user_localpart: str, as_token: str
+    ) -> Tuple[str, ApplicationService]:
         user = UserID(user_localpart, self.hs.hostname)
         user_id = user.to_string()
         service = self.store.get_app_service_by_token(as_token)
@@ -651,7 +655,7 @@ class RegistrationHandler:
             appservice_id=service_id,
             create_profile_with_displayname=user.localpart,
         )
-        return user_id
+        return (user_id, service)
 
     def check_user_id_not_appservice_exclusive(
         self, user_id: str, allowed_appservice: Optional[ApplicationService] = None

@@ -6,7 +6,7 @@ import synapse.rest.admin
 import synapse.rest.client.login
 import synapse.rest.client.room
 from synapse.api.constants import EventTypes, Membership
-from synapse.api.errors import LimitExceededError, SynapseError
+from synapse.api.errors import Codes, LimitExceededError, SynapseError
 from synapse.crypto.event_signing import add_hashes_and_signatures
 from synapse.events import FrozenEventV3
 from synapse.federation.federation_client import SendJoinResult
@@ -70,6 +70,7 @@ class TestJoinsLimitedByPerRoomRateLimiter(FederatingHomeserverTestCase):
                 action=Membership.JOIN,
             ),
             LimitExceededError,
+            by=0.5,
         )
 
     @override_config({"rc_joins_per_room": {"per_second": 0, "burst_count": 2}})
@@ -171,20 +172,25 @@ class TestJoinsLimitedByPerRoomRateLimiter(FederatingHomeserverTestCase):
             )
         )
 
-        with patch.object(
-            self.handler.federation_handler.federation_client,
-            "make_membership_event",
-            mock_make_membership_event,
-        ), patch.object(
-            self.handler.federation_handler.federation_client,
-            "send_join",
-            mock_send_join,
-        ), patch(
-            "synapse.event_auth._is_membership_change_allowed",
-            return_value=None,
-        ), patch(
-            "synapse.handlers.federation_event.check_state_dependent_auth_rules",
-            return_value=None,
+        with (
+            patch.object(
+                self.handler.federation_handler.federation_client,
+                "make_membership_event",
+                mock_make_membership_event,
+            ),
+            patch.object(
+                self.handler.federation_handler.federation_client,
+                "send_join",
+                mock_send_join,
+            ),
+            patch(
+                "synapse.event_auth._is_membership_change_allowed",
+                return_value=None,
+            ),
+            patch(
+                "synapse.handlers.federation_event.check_state_dependent_auth_rules",
+                return_value=None,
+            ),
         ):
             self.get_success(
                 self.handler.update_membership(
@@ -206,6 +212,7 @@ class TestJoinsLimitedByPerRoomRateLimiter(FederatingHomeserverTestCase):
                     remote_room_hosts=[self.OTHER_SERVER_NAME],
                 ),
                 LimitExceededError,
+                by=0.5,
             )
 
     # TODO: test that remote joins to a room are rate limited.
@@ -273,6 +280,7 @@ class TestReplicatedJoinsLimitedByPerRoomRateLimiter(BaseMultiWorkerStreamTestCa
                 action=Membership.JOIN,
             ),
             LimitExceededError,
+            by=0.5,
         )
 
         # Try to join as Chris on the original worker. Should get denied because Alice
@@ -285,6 +293,7 @@ class TestReplicatedJoinsLimitedByPerRoomRateLimiter(BaseMultiWorkerStreamTestCa
                 action=Membership.JOIN,
             ),
             LimitExceededError,
+            by=0.5,
         )
 
 
@@ -376,8 +385,28 @@ class RoomMemberMasterHandlerTestCase(HomeserverTestCase):
         )
 
     def test_forget_when_not_left(self) -> None:
-        """Tests that a user cannot not forgets a room that has not left."""
+        """Tests that a user cannot forget a room that they are still in."""
         self.get_failure(self.handler.forget(self.alice_ID, self.room_id), SynapseError)
+
+    def test_nonlocal_room_user_action(self) -> None:
+        """
+        Test that non-local user ids cannot perform room actions through
+        this homeserver.
+        """
+        alien_user_id = UserID.from_string("@cheeky_monkey:matrix.org")
+        bad_room_id = f"{self.room_id}+BAD_ID"
+
+        exc = self.get_failure(
+            self.handler.update_membership(
+                create_requester(self.alice),
+                alien_user_id,
+                bad_room_id,
+                "unban",
+            ),
+            SynapseError,
+        ).value
+
+        self.assertEqual(exc.errcode, Codes.BAD_JSON)
 
     def test_rejoin_forgotten_by_user(self) -> None:
         """Test that a user that has forgotten a room can do a re-join.
@@ -403,3 +432,24 @@ class RoomMemberMasterHandlerTestCase(HomeserverTestCase):
         self.assertFalse(
             self.get_success(self.store.did_forget(self.alice, self.room_id))
         )
+
+    def test_deduplicate_joins(self) -> None:
+        """
+        Test that calling /join multiple times does not store a new state group.
+        """
+
+        self.helper.join(self.room_id, user=self.bob, tok=self.bob_token)
+
+        sql = "SELECT COUNT(*) FROM state_groups WHERE room_id = ?"
+        rows = self.get_success(
+            self.store.db_pool.execute("test_deduplicate_joins", sql, self.room_id)
+        )
+        initial_count = rows[0][0]
+
+        self.helper.join(self.room_id, user=self.bob, tok=self.bob_token)
+        rows = self.get_success(
+            self.store.db_pool.execute("test_deduplicate_joins", sql, self.room_id)
+        )
+        new_count = rows[0][0]
+
+        self.assertEqual(initial_count, new_count)

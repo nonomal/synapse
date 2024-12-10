@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,7 +20,7 @@
 #
 #
 
-""" This module contains all the persistence actions done by the federation
+"""This module contains all the persistence actions done by the federation
 package.
 
 These actions are mostly only used by the :py:mod:`.replication` module.

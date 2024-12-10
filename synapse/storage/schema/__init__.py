@@ -1,7 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
-# Copyright (C) 2023 New Vector, Ltd
+# Copyright 2021 The Matrix.org Foundation C.I.C.
+# Copyright (C) 2023-2024 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -18,7 +19,7 @@
 #
 #
 
-SCHEMA_VERSION = 83  # remember to update the list below when updating
+SCHEMA_VERSION = 88  # remember to update the list below when updating
 """Represents the expectations made by the codebase about the database schema
 
 This should be incremented whenever the codebase changes its requirements on the
@@ -131,12 +132,35 @@ Changes in SCHEMA_VERSION = 82
 
 Changes in SCHEMA_VERSION = 83
     - The event_txn_id is no longer used.
+
+Changes in SCHEMA_VERSION = 84
+    - No longer assumes that `event_auth_chain_links` holds transitive links, and
+      so read operations must do graph traversal.
+
+Changes in SCHEMA_VERSION = 85
+    - Add a column `suspended` to the `users` table
+
+Changes in SCHEMA_VERSION = 86
+    - Add a column `authenticated` to the tables `local_media_repository` and `remote_media_cache`
+
+Changes in SCHEMA_VERSION = 87
+    - Add tables to store Sliding Sync data for quick filtering/sorting
+      (`sliding_sync_joined_rooms`, `sliding_sync_membership_snapshots`)
+    - Add tables for storing the per-connection state for sliding sync requests:
+      sliding_sync_connections, sliding_sync_connection_positions, sliding_sync_connection_required_state,
+      sliding_sync_connection_room_configs, sliding_sync_connection_streams
+
+Changes in SCHEMA_VERSION = 88
+    - MSC4140: Add `delayed_events` table that keeps track of events that are to
+      be posted in response to a resettable timeout or an on-demand action.
+    - Add background update to fix data integrity issue in the
+      `sliding_sync_membership_snapshots` -> `forgotten` column
 """
 
 
 SCHEMA_COMPAT_VERSION = (
-    # The event_txn_id table and tables from MSC2716 no longer exist.
-    83
+    # Transitive links are no longer written to `event_auth_chain_links`
+    84
 )
 """Limit on how far the synapse codebase can be rolled back without breaking db compat
 

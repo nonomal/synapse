@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014, 2015 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -125,7 +126,7 @@ class ContentRepositoryConfig(Config):
         # Only enable the media repo if either the media repo is enabled or the
         # current worker app is the media repo.
         if (
-            self.root.server.enable_media_repo is False
+            config.get("enable_media_repo", True) is False
             and config.get("worker_app") != "synapse.app.media_repository"
         ):
             self.can_load_media_repo = False
@@ -198,9 +199,9 @@ class ContentRepositoryConfig(Config):
                 provider_config["module"] == "file_system"
                 or provider_config["module"] == "synapse.rest.media.v1.storage_provider"
             ):
-                provider_config[
-                    "module"
-                ] = "synapse.media.storage_provider.FileStorageProviderBackend"
+                provider_config["module"] = (
+                    "synapse.media.storage_provider.FileStorageProviderBackend"
+                )
 
             provider_class, parsed_config = load_module(
                 provider_config, ("media_storage_providers", "<item %i>" % i)
@@ -270,6 +271,8 @@ class ContentRepositoryConfig(Config):
             self.media_retention_remote_media_lifetime_ms = self.parse_duration(
                 remote_media_lifetime
             )
+
+        self.enable_authenticated_media = config.get("enable_authenticated_media", True)
 
     def generate_config_section(self, data_dir_path: str, **kwargs: Any) -> str:
         assert data_dir_path is not None

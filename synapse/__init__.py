@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2023 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,8 +20,7 @@
 #
 #
 
-""" This is an implementation of a Matrix homeserver.
-"""
+"""This is an implementation of a Matrix homeserver."""
 
 import os
 import sys
@@ -38,8 +39,8 @@ ImageFile.LOAD_TRUNCATED_IMAGES = True
 # Note that we use an (unneeded) variable here so that pyupgrade doesn't nuke the
 # if-statement completely.
 py_version = sys.version_info
-if py_version < (3, 8):
-    print("Synapse requires Python 3.8 or above.")
+if py_version < (3, 9):
+    print("Synapse requires Python 3.9 or above.")
     sys.exit(1)
 
 # Allow using the asyncio reactor via env var.

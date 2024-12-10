@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -34,7 +35,6 @@ from synapse.util import Clock
 from tests import unittest
 from tests.server import FakeChannel
 from tests.test_utils.event_injection import inject_event
-from tests.unittest import override_config
 
 
 class BaseRelationsTestCase(unittest.HomeserverTestCase):
@@ -956,7 +956,6 @@ class RelationPaginationTestCase(BaseRelationsTestCase):
 
 
 class RecursiveRelationTestCase(BaseRelationsTestCase):
-    @override_config({"experimental_features": {"msc3981_recurse_relations": True}})
     def test_recursive_relations(self) -> None:
         """Generate a complex, multi-level relationship tree and query it."""
         # Create a thread with a few messages in it.
@@ -1002,7 +1001,7 @@ class RecursiveRelationTestCase(BaseRelationsTestCase):
         channel = self.make_request(
             "GET",
             f"/_matrix/client/v1/rooms/{self.room}/relations/{self.parent_id}"
-            "?dir=f&limit=20&org.matrix.msc3981.recurse=true",
+            "?dir=f&limit=20&recurse=true",
             access_token=self.user_token,
         )
         self.assertEqual(200, channel.code, channel.json_body)
@@ -1023,7 +1022,6 @@ class RecursiveRelationTestCase(BaseRelationsTestCase):
             ],
         )
 
-    @override_config({"experimental_features": {"msc3981_recurse_relations": True}})
     def test_recursive_relations_with_filter(self) -> None:
         """The event_type and rel_type still apply."""
         # Create a thread with a few messages in it.
@@ -1051,7 +1049,7 @@ class RecursiveRelationTestCase(BaseRelationsTestCase):
         channel = self.make_request(
             "GET",
             f"/_matrix/client/v1/rooms/{self.room}/relations/{self.parent_id}/{RelationTypes.ANNOTATION}"
-            "?dir=f&limit=20&org.matrix.msc3981.recurse=true",
+            "?dir=f&limit=20&recurse=true",
             access_token=self.user_token,
         )
         self.assertEqual(200, channel.code, channel.json_body)
@@ -1064,7 +1062,7 @@ class RecursiveRelationTestCase(BaseRelationsTestCase):
         channel = self.make_request(
             "GET",
             f"/_matrix/client/v1/rooms/{self.room}/relations/{self.parent_id}/{RelationTypes.ANNOTATION}/m.reaction"
-            "?dir=f&limit=20&org.matrix.msc3981.recurse=true",
+            "?dir=f&limit=20&recurse=true",
             access_token=self.user_token,
         )
         self.assertEqual(200, channel.code, channel.json_body)

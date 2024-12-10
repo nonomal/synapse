@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2017 Vector Creations Ltd
+# Copyright 2015 - 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -84,11 +86,17 @@ class EmailRegisterRequestTokenRestServlet(RestServlet):
         self.config = hs.config
 
         if self.hs.config.email.can_verify_email:
-            self.mailer = Mailer(
+            self.registration_mailer = Mailer(
                 hs=self.hs,
                 app_name=self.config.email.email_app_name,
                 template_html=self.config.email.email_registration_template_html,
                 template_text=self.config.email.email_registration_template_text,
+            )
+            self.already_in_use_mailer = Mailer(
+                hs=self.hs,
+                app_name=self.config.email.email_app_name,
+                template_html=self.config.email.email_already_in_use_template_html,
+                template_text=self.config.email.email_already_in_use_template_text,
             )
 
     async def on_POST(self, request: SynapseRequest) -> Tuple[int, JsonDict]:
@@ -137,8 +145,10 @@ class EmailRegisterRequestTokenRestServlet(RestServlet):
             if self.hs.config.server.request_token_inhibit_3pid_errors:
                 # Make the client think the operation succeeded. See the rationale in the
                 # comments for request_token_inhibit_3pid_errors.
+                # Still send an email to warn the user that an account already exists.
                 # Also wait for some random amount of time between 100ms and 1s to make it
                 # look like we did something.
+                await self.already_in_use_mailer.send_already_in_use_mail(email)
                 await self.hs.get_clock().sleep(random.randint(1, 10) / 10)
                 return 200, {"sid": random_string(16)}
 
@@ -149,7 +159,7 @@ class EmailRegisterRequestTokenRestServlet(RestServlet):
             email,
             client_secret,
             send_attempt,
-            self.mailer.send_registration_mail,
+            self.registration_mailer.send_registration_mail,
             next_link,
         )
 
@@ -630,12 +640,10 @@ class RegisterRestServlet(RestServlet):
             if not password_hash:
                 raise SynapseError(400, "Missing params: password", Codes.MISSING_PARAM)
 
-            desired_username = (
-                await (
-                    self.password_auth_provider.get_username_for_registration(
-                        auth_result,
-                        params,
-                    )
+            desired_username = await (
+                self.password_auth_provider.get_username_for_registration(
+                    auth_result,
+                    params,
                 )
             )
 
@@ -686,11 +694,9 @@ class RegisterRestServlet(RestServlet):
                 session_id
             )
 
-            display_name = (
-                await (
-                    self.password_auth_provider.get_displayname_for_registration(
-                        auth_result, params
-                    )
+            display_name = await (
+                self.password_auth_provider.get_displayname_for_registration(
+                    auth_result, params
                 )
             )
 
@@ -765,9 +771,12 @@ class RegisterRestServlet(RestServlet):
         body: JsonDict,
         should_issue_refresh_token: bool = False,
     ) -> JsonDict:
-        user_id = await self.registration_handler.appservice_register(
+        user_id, appservice = await self.registration_handler.appservice_register(
             username, as_token
         )
+        if appservice.msc4190_device_management:
+            body["inhibit_login"] = True
+
         return await self._create_registration_details(
             user_id,
             body,
@@ -931,7 +940,7 @@ class RegisterAppServiceOnlyRestServlet(RestServlet):
 
         as_token = self.auth.get_access_token_from_request(request)
 
-        user_id = await self.registration_handler.appservice_register(
+        user_id, _ = await self.registration_handler.appservice_register(
             desired_username, as_token
         )
         return 200, {"user_id": user_id}

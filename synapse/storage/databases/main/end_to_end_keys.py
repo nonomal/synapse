@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019,2020 The Matrix.org Foundation C.I.C.
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -56,7 +58,7 @@ from synapse.storage.database import (
 )
 from synapse.storage.databases.main.cache import CacheInvalidationWorkerStore
 from synapse.storage.engines import PostgresEngine
-from synapse.storage.util.id_generators import StreamIdGenerator
+from synapse.storage.util.id_generators import MultiWriterIdGenerator
 from synapse.types import JsonDict, JsonMapping
 from synapse.util import json_decoder, json_encoder
 from synapse.util.caches.descriptors import cached, cachedList
@@ -97,6 +99,13 @@ class EndToEndKeyBackgroundStore(SQLBaseStore):
             unique=True,
         )
 
+        self.db_pool.updates.register_background_index_update(
+            update_name="add_otk_ts_added_index",
+            index_name="e2e_one_time_keys_json_user_id_device_id_algorithm_ts_added_idx",
+            table="e2e_one_time_keys_json",
+            columns=("user_id", "device_id", "algorithm", "ts_added_ms"),
+        )
+
 
 class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorkerStore):
     def __init__(
@@ -121,9 +130,9 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
         if stream_name == DeviceListsStream.NAME:
             for row in rows:
                 assert isinstance(row, DeviceListsStream.DeviceListsStreamRow)
-                if row.entity.startswith("@"):
+                if not row.hosts_calculated:
                     self._get_e2e_device_keys_for_federation_query_inner.invalidate(
-                        (row.entity,)
+                        (row.user_id,)
                     )
 
         super().process_replication_rows(stream_name, instance_name, token, rows)
@@ -254,8 +263,7 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
         self,
         query_list: Collection[Tuple[str, Optional[str]]],
         include_all_devices: Literal[False] = False,
-    ) -> Dict[str, Dict[str, DeviceKeyLookupResult]]:
-        ...
+    ) -> Dict[str, Dict[str, DeviceKeyLookupResult]]: ...
 
     @overload
     async def get_e2e_device_keys_and_signatures(
@@ -263,8 +271,7 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
         query_list: Collection[Tuple[str, Optional[str]]],
         include_all_devices: bool = False,
         include_deleted_devices: Literal[False] = False,
-    ) -> Dict[str, Dict[str, DeviceKeyLookupResult]]:
-        ...
+    ) -> Dict[str, Dict[str, DeviceKeyLookupResult]]: ...
 
     @overload
     async def get_e2e_device_keys_and_signatures(
@@ -272,8 +279,7 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
         query_list: Collection[Tuple[str, Optional[str]]],
         include_all_devices: Literal[True],
         include_deleted_devices: Literal[True],
-    ) -> Dict[str, Dict[str, Optional[DeviceKeyLookupResult]]]:
-        ...
+    ) -> Dict[str, Dict[str, Optional[DeviceKeyLookupResult]]]: ...
 
     @trace
     @cancellable
@@ -406,17 +412,24 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
         def get_e2e_device_keys_txn(
             txn: LoggingTransaction, query_clause: str, query_params: list
         ) -> None:
-            sql = (
-                "SELECT user_id, device_id, "
-                "    d.display_name, "
-                "    k.key_json"
-                " FROM devices d"
-                "    %s JOIN e2e_device_keys_json k USING (user_id, device_id)"
-                " WHERE %s AND NOT d.hidden"
-            ) % (
-                "LEFT" if include_all_devices else "INNER",
-                query_clause,
-            )
+            if include_all_devices:
+                sql = f"""
+                    SELECT user_id, device_id, d.display_name, k.key_json
+                    FROM devices d
+                    LEFT JOIN e2e_device_keys_json k USING (user_id, device_id)
+                    WHERE {query_clause} AND NOT d.hidden
+                """
+            else:
+                # We swap around `e2e_device_keys_json` and `devices`, as we
+                # want Postgres to query `e2e_device_keys_json` first as it will
+                # have fewer rows in it. This helps *a lot* with accounts with
+                # lots of non-e2e devices (such as bots).
+                sql = f"""
+                    SELECT user_id, device_id, d.display_name, k.key_json
+                    FROM e2e_device_keys_json k
+                    INNER JOIN devices d USING (user_id, device_id)
+                    WHERE {query_clause} AND NOT d.hidden
+                """
 
             txn.execute(sql, query_params)
 
@@ -466,9 +479,7 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
         signature_sql = """
             SELECT user_id, key_id, target_device_id, signature
             FROM e2e_cross_signing_signatures WHERE %s
-            """ % (
-            " OR ".join("(" + q + ")" for q in signature_query_clauses)
-        )
+            """ % (" OR ".join("(" + q + ")" for q in signature_query_clauses))
 
         txn.execute(signature_sql, signature_query_params)
         return cast(
@@ -911,9 +922,7 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
                         FROM e2e_cross_signing_keys
                         WHERE %(clause)s
                         ORDER BY user_id, keytype, stream_id DESC
-                """ % {
-                    "clause": clause
-                }
+                """ % {"clause": clause}
             else:
                 # SQLite has special handling for bare columns when using
                 # MIN/MAX with a `GROUP BY` clause where it picks the value from
@@ -923,9 +932,7 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
                         FROM e2e_cross_signing_keys
                         WHERE %(clause)s
                         GROUP BY user_id, keytype
-                """ % {
-                    "clause": clause
-                }
+                """ % {"clause": clause}
 
             txn.execute(sql, params)
 
@@ -1122,7 +1129,7 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
         """Take a list of one time keys out of the database.
 
         Args:
-            query_list: An iterable of tuples of (user ID, device ID, algorithm).
+            query_list: An iterable of tuples of (user ID, device ID, algorithm, number of keys).
 
         Returns:
             A tuple (results, missing) of:
@@ -1310,9 +1317,14 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
             OTK was found.
         """
 
+        # Return the oldest keys from this device (based on `ts_added_ms`).
+        # Doing so means that keys are issued in the same order they were uploaded,
+        # which reduces the chances of a client expiring its copy of a (private)
+        # key while the public key is still on the server, waiting to be issued.
         sql = """
             SELECT key_id, key_json FROM e2e_one_time_keys_json
             WHERE user_id = ? AND device_id = ? AND algorithm = ?
+            ORDER BY ts_added_ms
             LIMIT ?
         """
 
@@ -1354,13 +1366,22 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
             A list of tuples (user_id, device_id, algorithm, key_id, key_json)
             for each OTK claimed.
         """
+        # Find, delete, and return the oldest keys from each device (based on
+        # `ts_added_ms`).
+        #
+        # Doing so means that keys are issued in the same order they were uploaded,
+        # which reduces the chances of a client expiring its copy of a (private)
+        # key while the public key is still on the server, waiting to be issued.
         sql = """
             WITH claims(user_id, device_id, algorithm, claim_count) AS (
                 VALUES ?
             ), ranked_keys AS (
                 SELECT
                     user_id, device_id, algorithm, key_id, claim_count,
-                    ROW_NUMBER() OVER (PARTITION BY (user_id, device_id, algorithm)) AS r
+                    ROW_NUMBER() OVER (
+                        PARTITION BY (user_id, device_id, algorithm)
+                        ORDER BY ts_added_ms
+                    ) AS r
                 FROM e2e_one_time_keys_json
                     JOIN claims USING (user_id, device_id, algorithm)
             )
@@ -1432,6 +1453,54 @@ class EndToEndKeyWorkerStore(EndToEndKeyBackgroundStore, CacheInvalidationWorker
             impl,
         )
 
+    async def delete_old_otks_for_next_user_batch(
+        self, after_user_id: str, number_of_users: int
+    ) -> Tuple[List[str], int]:
+        """Deletes old OTKs belonging to the next batch of users
+
+        Returns:
+            `(users, rows)`, where:
+             * `users` is the user IDs of the updated users. An empty list if we are done.
+             * `rows` is the number of deleted rows
+        """
+
+        def impl(txn: LoggingTransaction) -> Tuple[List[str], int]:
+            # Find a batch of users
+            txn.execute(
+                """
+                SELECT DISTINCT(user_id) FROM e2e_one_time_keys_json
+                    WHERE user_id > ?
+                    ORDER BY user_id
+                    LIMIT ?
+                """,
+                (after_user_id, number_of_users),
+            )
+            users = [row[0] for row in txn.fetchall()]
+            if len(users) == 0:
+                return users, 0
+
+            # Delete any old OTKs belonging to those users.
+            #
+            # We only actually consider OTKs whose key ID is 6 characters long. These
+            # keys were likely made by libolm rather than Vodozemac; libolm only kept
+            # 100 private OTKs, so was far more vulnerable than Vodozemac to throwing
+            # away keys prematurely.
+            clause, args = make_in_list_sql_clause(
+                txn.database_engine, "user_id", users
+            )
+            sql = f"""
+                DELETE FROM e2e_one_time_keys_json
+                WHERE {clause} AND ts_added_ms < ? AND length(key_id) = 6
+                """
+            args.append(self._clock.time_msec() - (7 * 24 * 3600 * 1000))
+            txn.execute(sql, args)
+
+            return users, txn.rowcount
+
+        return await self.db_pool.runInteraction(
+            "delete_old_otks_for_next_user_batch", impl
+        )
+
 
 class EndToEndKeyStore(EndToEndKeyWorkerStore, SQLBaseStore):
     def __init__(
@@ -1442,11 +1511,17 @@ class EndToEndKeyStore(EndToEndKeyWorkerStore, SQLBaseStore):
     ):
         super().__init__(database, db_conn, hs)
 
-        self._cross_signing_id_gen = StreamIdGenerator(
-            db_conn,
-            hs.get_replication_notifier(),
-            "e2e_cross_signing_keys",
-            "stream_id",
+        self._cross_signing_id_gen = MultiWriterIdGenerator(
+            db_conn=db_conn,
+            db=database,
+            notifier=hs.get_replication_notifier(),
+            stream_name="e2e_cross_signing_keys",
+            instance_name=self._instance_name,
+            tables=[
+                ("e2e_cross_signing_keys", "instance_name", "stream_id"),
+            ],
+            sequence_name="e2e_cross_signing_keys_sequence",
+            writers=["master"],
         )
 
     async def set_e2e_device_keys(
@@ -1621,6 +1696,7 @@ class EndToEndKeyStore(EndToEndKeyWorkerStore, SQLBaseStore):
                 "keytype": key_type,
                 "keydata": json_encoder.encode(key),
                 "stream_id": stream_id,
+                "instance_name": self._instance_name,
             },
         )
 

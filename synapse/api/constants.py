@@ -1,6 +1,9 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 The Matrix.org Foundation C.I.C.
+# Copyright 2017 Vector Creations Ltd
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -40,7 +43,6 @@ MAIN_TIMELINE: Final = "main"
 
 
 class Membership:
-
     """Represents the membership states of a user in a room."""
 
     INVITE: Final = "invite"
@@ -48,7 +50,7 @@ class Membership:
     KNOCK: Final = "knock"
     LEAVE: Final = "leave"
     BAN: Final = "ban"
-    LIST: Final = (INVITE, JOIN, KNOCK, LEAVE, BAN)
+    LIST: Final = frozenset((INVITE, JOIN, KNOCK, LEAVE, BAN))
 
 
 class PresenceState:
@@ -126,6 +128,12 @@ class EventTypes:
     SpaceParent: Final = "m.space.parent"
 
     Reaction: Final = "m.reaction"
+    Sticker: Final = "m.sticker"
+    LiveLocationShareStart: Final = "m.beacon_info"
+
+    CallInvite: Final = "m.call.invite"
+
+    PollStart: Final = "m.poll.start"
 
 
 class ToDeviceEventTypes:
@@ -217,6 +225,15 @@ class EventContentFields:
     # This is deprecated in MSC2175.
     ROOM_CREATOR: Final = "creator"
 
+    # The version of the room for `m.room.create` events.
+    ROOM_VERSION: Final = "room_version"
+
+    ROOM_NAME: Final = "name"
+
+    MEMBERSHIP: Final = "membership"
+    MEMBERSHIP_DISPLAYNAME: Final = "displayname"
+    MEMBERSHIP_AVATAR_URL: Final = "avatar_url"
+
     # Used in m.room.guest_access events.
     GUEST_ACCESS: Final = "guest_access"
 
@@ -228,6 +245,18 @@ class EventContentFields:
 
     # an unspecced field added to to-device messages to identify them uniquely-ish
     TO_DEVICE_MSGID: Final = "org.matrix.msgid"
+
+    # `m.room.encryption`` algorithm field
+    ENCRYPTION_ALGORITHM: Final = "algorithm"
+
+    TOMBSTONE_SUCCESSOR_ROOM: Final = "replacement_room"
+
+
+class EventUnsignedContentFields:
+    """Fields found inside the 'unsigned' data on events"""
+
+    # Requesting user's membership, per MSC4115
+    MEMBERSHIP: Final = "membership"
 
 
 class RoomTypes:

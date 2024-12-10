@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -40,7 +41,7 @@ logger = logging.getLogger("update_database")
 
 
 class MockHomeserver(HomeServer):
-    DATASTORE_CLASS = DataStore  # type: ignore [assignment]
+    DATASTORE_CLASS = DataStore
 
     def __init__(self, config: HomeServerConfig):
         super().__init__(

@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 Sorunome
+# Copyright 2018-2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -291,7 +293,9 @@ class StatsHandler:
                     "history_visibility"
                 )
             elif delta.event_type == EventTypes.RoomEncryption:
-                room_state["encryption"] = event_content.get("algorithm")
+                room_state["encryption"] = event_content.get(
+                    EventContentFields.ENCRYPTION_ALGORITHM
+                )
             elif delta.event_type == EventTypes.Name:
                 room_state["name"] = event_content.get("name")
             elif delta.event_type == EventTypes.Topic:

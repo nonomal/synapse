@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -102,7 +103,7 @@ _rate_limiter_instances_lock = threading.Lock()
 
 
 def _get_counts_from_rate_limiter_instance(
-    count_func: Callable[["FederationRateLimiter"], int]
+    count_func: Callable[["FederationRateLimiter"], int],
 ) -> Mapping[Tuple[str, ...], int]:
     """Returns a count of something (slept/rejected hosts) by (metrics_name)"""
     # Cast to a list to prevent it changing while the Prometheus
@@ -176,9 +177,9 @@ class FederationRateLimiter:
                 clock=clock, config=config, metrics_name=metrics_name
             )
 
-        self.ratelimiters: DefaultDict[
-            str, "_PerHostRatelimiter"
-        ] = collections.defaultdict(new_limiter)
+        self.ratelimiters: DefaultDict[str, "_PerHostRatelimiter"] = (
+            collections.defaultdict(new_limiter)
+        )
 
         with _rate_limiter_instances_lock:
             _rate_limiter_instances.add(self)

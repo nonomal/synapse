@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -86,8 +87,7 @@ class Codes(str, Enum):
     WEAK_PASSWORD = "M_WEAK_PASSWORD"
     INVALID_SIGNATURE = "M_INVALID_SIGNATURE"
     USER_DEACTIVATED = "M_USER_DEACTIVATED"
-    # USER_LOCKED = "M_USER_LOCKED"
-    USER_LOCKED = "ORG_MATRIX_MSC3939_USER_LOCKED"
+    USER_LOCKED = "M_USER_LOCKED"
     NOT_YET_UPLOADED = "M_NOT_YET_UPLOADED"
     CANNOT_OVERWRITE_MEDIA = "M_CANNOT_OVERWRITE_MEDIA"
 
@@ -100,8 +100,9 @@ class Codes(str, Enum):
     # The account has been suspended on the server.
     # By opposition to `USER_DEACTIVATED`, this is a reversible measure
     # that can possibly be appealed and reverted.
-    # Part of MSC3823.
-    USER_ACCOUNT_SUSPENDED = "ORG.MATRIX.MSC3823.USER_ACCOUNT_SUSPENDED"
+    # Introduced by MSC3823
+    # https://github.com/matrix-org/matrix-spec-proposals/pull/3823
+    USER_ACCOUNT_SUSPENDED = "M_USER_SUSPENDED"
 
     BAD_ALIAS = "M_BAD_ALIAS"
     # For restricted join rules.
@@ -126,6 +127,10 @@ class Codes(str, Enum):
     # Attempt to send a second annotation with the same event type & annotation key
     # MSC2677
     DUPLICATE_ANNOTATION = "M_DUPLICATE_ANNOTATION"
+
+    # MSC3575 we are telling the client they need to expire their sliding sync
+    # connection.
+    UNKNOWN_POS = "M_UNKNOWN_POS"
 
 
 class CodeMessageException(RuntimeError):
@@ -516,8 +521,6 @@ class InvalidCaptchaError(SynapseError):
 class LimitExceededError(SynapseError):
     """A client has sent too many requests and is being throttled."""
 
-    include_retry_after_header = False
-
     def __init__(
         self,
         limiter_name: str,
@@ -525,9 +528,10 @@ class LimitExceededError(SynapseError):
         retry_after_ms: Optional[int] = None,
         errcode: str = Codes.LIMIT_EXCEEDED,
     ):
+        # Use HTTP header Retry-After to enable library-assisted retry handling.
         headers = (
             {"Retry-After": str(math.ceil(retry_after_ms / 1000))}
-            if self.include_retry_after_header and retry_after_ms is not None
+            if retry_after_ms is not None
             else None
         )
         super().__init__(code, "Too Many Requests", errcode, headers=headers)
@@ -846,4 +850,18 @@ class PartialStateConflictError(SynapseError):
             HTTPStatus.CONFLICT,
             msg=PartialStateConflictError.message(),
             errcode=Codes.UNKNOWN,
+        )
+
+
+class SlidingSyncUnknownPosition(SynapseError):
+    """An error that Synapse can return to signal to the client to expire their
+    sliding sync connection (i.e. send a new request without a `?since=`
+    param).
+    """
+
+    def __init__(self) -> None:
+        super().__init__(
+            HTTPStatus.BAD_REQUEST,
+            msg="Unknown position",
+            errcode=Codes.UNKNOWN_POS,
         )

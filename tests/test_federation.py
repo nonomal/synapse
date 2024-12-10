@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -100,7 +101,9 @@ class MessageAcceptTests(unittest.HomeserverTestCase):
         ) -> List[EventBase]:
             return list(pdus)
 
-        self.client._check_sigs_and_hash_for_pulled_events_and_fetch = _check_sigs_and_hash_for_pulled_events_and_fetch  # type: ignore[assignment]
+        self.client._check_sigs_and_hash_for_pulled_events_and_fetch = (  # type: ignore[method-assign]
+            _check_sigs_and_hash_for_pulled_events_and_fetch  # type: ignore[assignment]
+        )
 
         # Send the join, it should return None (which is not an error)
         self.assertEqual(

@@ -88,14 +88,109 @@ process, for example:
     dpkg -i matrix-synapse-py3_1.3.0+stretch1_amd64.deb
     ```
 
-Generally Synapse database schemas are compatible across multiple versions, once
-a version of Synapse is deployed you may not be able to rollback automatically.
+Generally Synapse database schemas are compatible across multiple versions, but once
+a version of Synapse is deployed you may not be able to roll back automatically.
 The following table gives the version ranges and the earliest version they can
 be rolled back to. E.g. Synapse versions v1.58.0 through v1.61.1 can be rolled
-back safely to v1.57.0, but starting with v1.62.0 it is only safe to rollback to
+back safely to v1.57.0, but starting with v1.62.0 it is only safe to roll back to
 v1.61.0.
 
 <!-- REPLACE_WITH_SCHEMA_VERSIONS -->
+
+## Upgrading from a very old version
+
+You need to read all of the upgrade notes for each version between your current
+version and the latest so that you can update your dependencies, environment,
+config files, etc. if necessary. But you do not need to perform an
+upgrade to each individual version that was missed.
+
+We do not have a list of which versions must be installed. Instead, we recommend
+that you upgrade through each incompatible database schema version, which would
+give you the ability to roll back the maximum number of versions should anything
+go wrong. See [Rolling back to older versions](#rolling-back-to-older-versions)
+above.
+
+Additionally, new versions of Synapse will occasionally run database migrations
+and background updates to update the database. Synapse will not start until
+database migrations are complete. You should wait until background updates from
+each upgrade are complete before moving on to the next upgrade, to avoid
+stacking them up. You can monitor the currently running background updates with
+[the Admin API](usage/administration/admin_api/background_updates.html#status).
+
+# Upgrading to v1.120.0
+
+## Removal of experimental MSC3886 feature
+
+[MSC3886](https://github.com/matrix-org/matrix-spec-proposals/pull/3886)
+has been closed (and will not enter the Matrix spec). As such, we are
+removing the experimental support for it in this release.
+
+The `experimental_features.msc3886_endpoint` configuration option has
+been removed.
+
+## Authenticated media is now enforced by default
+
+The [`enable_authenticated_media`] configuration option now defaults to true.
+
+This means that clients and remote (federated) homeservers now need to use
+the authenticated media endpoints in order to download media from your
+homeserver.
+
+As an exception, existing media that was stored on the server prior to
+this option changing to `true` will still be accessible over the
+unauthenticated endpoints.
+
+The matrix.org homeserver has already been running with this option enabled
+since September 2024, so most common clients and homeservers should already
+be compatible.
+
+With that said, administrators who wish to disable this feature for broader
+compatibility can still do so by manually configuring
+`enable_authenticated_media: False`.
+
+[`enable_authenticated_media`]: usage/configuration/config_documentation.md#enable_authenticated_media
+
+
+# Upgrading to v1.119.0
+
+## Minimum supported Python version
+
+The minimum supported Python version has been increased from v3.8 to v3.9.
+You will need Python 3.9+ to run Synapse v1.119.0 (due out Nov 7th, 2024).
+
+If you use current versions of the Matrix.org-distributed Docker images, no action is required.
+Please note that support for Ubuntu `focal` was dropped as well since it uses Python 3.8.
+
+
+# Upgrading to v1.111.0
+
+## New worker endpoints for authenticated client and federation media
+
+[Media repository workers](./workers.md#synapseappmedia_repository) handling
+Media APIs can now handle the following endpoint patterns:
+
+```
+^/_matrix/client/v1/media/.*$
+^/_matrix/federation/v1/media/.*$
+```
+
+Please update your reverse proxy configuration.
+
+# Upgrading to v1.106.0
+
+## Minimum supported Rust version
+The minimum supported Rust version has been increased from v1.65.0 to v1.66.0.
+Users building from source will need to ensure their `rustc` version is up to
+date.
+
+
+# Upgrading to v1.100.0
+
+## Minimum supported Rust version
+The minimum supported Rust version has been increased from v1.61.0 to v1.65.0.
+Users building from source will need to ensure their `rustc` version is up to
+date.
+
 
 # Upgrading to v1.93.0
 

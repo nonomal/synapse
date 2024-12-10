@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -86,9 +88,9 @@ class FederationRemoteSendQueue(AbstractFederationSender):
         # Stores the destinations we need to explicitly send presence to about a
         # given user.
         # Stream position -> (user_id, destinations)
-        self.presence_destinations: SortedDict[
-            int, Tuple[str, Iterable[str]]
-        ] = SortedDict()
+        self.presence_destinations: SortedDict[int, Tuple[str, Iterable[str]]] = (
+            SortedDict()
+        )
 
         # (destination, key) -> EDU
         self.keyed_edu: Dict[Tuple[str, tuple], Edu] = {}

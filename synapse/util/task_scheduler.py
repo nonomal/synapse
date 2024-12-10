@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2023 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -23,7 +24,12 @@ from typing import TYPE_CHECKING, Awaitable, Callable, Dict, List, Optional, Set
 
 from twisted.python.failure import Failure
 
-from synapse.logging.context import nested_logging_context
+from synapse.logging.context import (
+    ContextResourceUsage,
+    LoggingContext,
+    nested_logging_context,
+    set_current_context,
+)
 from synapse.metrics import LaterGauge
 from synapse.metrics.background_process_metrics import (
     run_as_background_process,
@@ -80,6 +86,8 @@ class TaskScheduler:
     MAX_CONCURRENT_RUNNING_TASKS = 5
     # Time from the last task update after which we will log a warning
     LAST_UPDATE_BEFORE_WARNING_MS = 24 * 60 * 60 * 1000  # 24hrs
+    # Report a running task's status and usage every so often.
+    OCCASIONAL_REPORT_INTERVAL_MS = 5 * 60 * 1000  # 5 minutes
 
     def __init__(self, hs: "HomeServer"):
         self._hs = hs
@@ -166,9 +174,10 @@ class TaskScheduler:
             The id of the scheduled task
         """
         status = TaskStatus.SCHEDULED
+        start_now = False
         if timestamp is None or timestamp < self._clock.time_msec():
             timestamp = self._clock.time_msec()
-            status = TaskStatus.ACTIVE
+            start_now = True
 
         task = ScheduledTask(
             random_string(16),
@@ -182,9 +191,11 @@ class TaskScheduler:
         )
         await self._store.insert_scheduled_task(task)
 
-        if status == TaskStatus.ACTIVE:
+        # If the task is ready to run immediately, run the scheduling algorithm now
+        # rather than waiting
+        if start_now:
             if self._run_background_tasks:
-                await self._launch_task(task)
+                self._launch_scheduled_tasks()
             else:
                 self._hs.get_replication_command_handler().send_new_active_task(task.id)
 
@@ -292,23 +303,13 @@ class TaskScheduler:
             raise Exception(f"Task {id} is currently ACTIVE and can't be deleted")
         await self._store.delete_scheduled_task(id)
 
-    def launch_task_by_id(self, id: str) -> None:
-        """Try launching the task with the given ID."""
-        # Don't bother trying to launch new tasks if we're already at capacity.
-        if len(self._running_tasks) >= TaskScheduler.MAX_CONCURRENT_RUNNING_TASKS:
-            return
+    def on_new_task(self, task_id: str) -> None:
+        """Handle a notification that a new ready-to-run task has been added to the queue"""
+        # Just run the scheduler
+        self._launch_scheduled_tasks()
 
-        run_as_background_process("launch_task_by_id", self._launch_task_by_id, id)
-
-    async def _launch_task_by_id(self, id: str) -> None:
-        """Helper async function for `launch_task_by_id`."""
-        task = await self.get_task(id)
-        if task:
-            await self._launch_task(task)
-
-    @wrap_as_background_process("launch_scheduled_tasks")
-    async def _launch_scheduled_tasks(self) -> None:
-        """Retrieve and launch scheduled tasks that should be running at that time."""
+    def _launch_scheduled_tasks(self) -> None:
+        """Retrieve and launch scheduled tasks that should be running at this time."""
         # Don't bother trying to launch new tasks if we're already at capacity.
         if len(self._running_tasks) >= TaskScheduler.MAX_CONCURRENT_RUNNING_TASKS:
             return
@@ -318,20 +319,26 @@ class TaskScheduler:
 
         self._launching_new_tasks = True
 
-        try:
-            for task in await self.get_tasks(
-                statuses=[TaskStatus.ACTIVE], limit=self.MAX_CONCURRENT_RUNNING_TASKS
-            ):
-                await self._launch_task(task)
-            for task in await self.get_tasks(
-                statuses=[TaskStatus.SCHEDULED],
-                max_timestamp=self._clock.time_msec(),
-                limit=self.MAX_CONCURRENT_RUNNING_TASKS,
-            ):
-                await self._launch_task(task)
+        async def inner() -> None:
+            try:
+                for task in await self.get_tasks(
+                    statuses=[TaskStatus.ACTIVE],
+                    limit=self.MAX_CONCURRENT_RUNNING_TASKS,
+                ):
+                    # _launch_task will ignore tasks that we're already running, and
+                    # will also do nothing if we're already at the maximum capacity.
+                    await self._launch_task(task)
+                for task in await self.get_tasks(
+                    statuses=[TaskStatus.SCHEDULED],
+                    max_timestamp=self._clock.time_msec(),
+                    limit=self.MAX_CONCURRENT_RUNNING_TASKS,
+                ):
+                    await self._launch_task(task)
 
-        finally:
-            self._launching_new_tasks = False
+            finally:
+                self._launching_new_tasks = False
+
+        run_as_background_process("launch_scheduled_tasks", inner)
 
     @wrap_as_background_process("clean_scheduled_tasks")
     async def _clean_scheduled_tasks(self) -> None:
@@ -344,6 +351,33 @@ class TaskScheduler:
             # FAILED and COMPLETE tasks should never be running
             assert task.id not in self._running_tasks
             await self._store.delete_scheduled_task(task.id)
+
+    @staticmethod
+    def _log_task_usage(
+        state: str, task: ScheduledTask, usage: ContextResourceUsage, active_time: float
+    ) -> None:
+        """
+        Log a line describing the state and usage of a task.
+        The log line is inspired by / a copy of the request log line format,
+        but with irrelevant fields removed.
+
+        active_time: Time that the task has been running for, in seconds.
+        """
+
+        logger.info(
+            "Task %s: %.3fsec (%.3fsec, %.3fsec) (%.3fsec/%.3fsec/%d)"
+            " [%d dbevts] %r, %r",
+            state,
+            active_time,
+            usage.ru_utime,
+            usage.ru_stime,
+            usage.db_sched_duration_sec,
+            usage.db_txn_duration_sec,
+            int(usage.db_txn_count),
+            usage.evt_db_fetch_count,
+            task.resource_id,
+            task.params,
+        )
 
     async def _launch_task(self, task: ScheduledTask) -> None:
         """Launch a scheduled task now.
@@ -359,8 +393,32 @@ class TaskScheduler:
             )
         function = self._actions[task.action]
 
+        def _occasional_report(
+            task_log_context: LoggingContext, start_time: float
+        ) -> None:
+            """
+            Helper to log a 'Task continuing' line every so often.
+            """
+
+            current_time = self._clock.time()
+            calling_context = set_current_context(task_log_context)
+            try:
+                usage = task_log_context.get_resource_usage()
+                TaskScheduler._log_task_usage(
+                    "continuing", task, usage, current_time - start_time
+                )
+            finally:
+                set_current_context(calling_context)
+
         async def wrapper() -> None:
-            with nested_logging_context(task.id):
+            with nested_logging_context(task.id) as log_context:
+                start_time = self._clock.time()
+                occasional_status_call = self._clock.looping_call(
+                    _occasional_report,
+                    TaskScheduler.OCCASIONAL_REPORT_INTERVAL_MS,
+                    log_context,
+                    start_time,
+                )
                 try:
                     (status, result, error) = await function(task)
                 except Exception:
@@ -381,6 +439,13 @@ class TaskScheduler:
                     error=error,
                 )
                 self._running_tasks.remove(task.id)
+
+                current_time = self._clock.time()
+                usage = log_context.get_resource_usage()
+                TaskScheduler._log_task_usage(
+                    status.value, task, usage, current_time - start_time
+                )
+                occasional_status_call.stop()
 
             # Try launch a new task since we've finished with this one.
             self._clock.call_later(0.1, self._launch_scheduled_tasks)

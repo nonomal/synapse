@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -50,7 +51,7 @@ from typing import (
 )
 
 import attr
-from typing_extensions import Concatenate, Literal, ParamSpec
+from typing_extensions import Concatenate, Literal, ParamSpec, Unpack
 
 from twisted.internet import defer
 from twisted.internet.defer import CancelledError
@@ -60,6 +61,7 @@ from twisted.python.failure import Failure
 from synapse.logging.context import (
     PreserveLoggingContext,
     make_deferred_yieldable,
+    run_coroutine_in_background,
     run_in_background,
 )
 from synapse.util import Clock
@@ -283,15 +285,7 @@ async def yieldable_gather_results(
     try:
         return await make_deferred_yieldable(
             defer.gatherResults(
-                # type-ignore: mypy reports two errors:
-                # error: Argument 1 to "run_in_background" has incompatible type
-                #     "Callable[[T, **P], Awaitable[R]]"; expected
-                #     "Callable[[T, **P], Awaitable[R]]"  [arg-type]
-                # error: Argument 2 to "run_in_background" has incompatible type
-                #     "T"; expected "[T, **P.args]"  [arg-type]
-                # The former looks like a mypy bug, and the latter looks like a
-                # false positive.
-                [run_in_background(func, item, *args, **kwargs) for item in iter],  # type: ignore[arg-type]
+                [run_in_background(func, item, *args, **kwargs) for item in iter],
                 consumeErrors=True,
             )
         )
@@ -337,7 +331,7 @@ async def yieldable_gather_results_delaying_cancellation(
         return await make_deferred_yieldable(
             delay_cancellation(
                 defer.gatherResults(
-                    [run_in_background(func, item, *args, **kwargs) for item in iter],  # type: ignore[arg-type]
+                    [run_in_background(func, item, *args, **kwargs) for item in iter],
                     consumeErrors=True,
                 )
             )
@@ -351,29 +345,27 @@ T1 = TypeVar("T1")
 T2 = TypeVar("T2")
 T3 = TypeVar("T3")
 T4 = TypeVar("T4")
+T5 = TypeVar("T5")
 
 
 @overload
 def gather_results(
     deferredList: Tuple[()], consumeErrors: bool = ...
-) -> "defer.Deferred[Tuple[()]]":
-    ...
+) -> "defer.Deferred[Tuple[()]]": ...
 
 
 @overload
 def gather_results(
     deferredList: Tuple["defer.Deferred[T1]"],
     consumeErrors: bool = ...,
-) -> "defer.Deferred[Tuple[T1]]":
-    ...
+) -> "defer.Deferred[Tuple[T1]]": ...
 
 
 @overload
 def gather_results(
     deferredList: Tuple["defer.Deferred[T1]", "defer.Deferred[T2]"],
     consumeErrors: bool = ...,
-) -> "defer.Deferred[Tuple[T1, T2]]":
-    ...
+) -> "defer.Deferred[Tuple[T1, T2]]": ...
 
 
 @overload
@@ -382,8 +374,7 @@ def gather_results(
         "defer.Deferred[T1]", "defer.Deferred[T2]", "defer.Deferred[T3]"
     ],
     consumeErrors: bool = ...,
-) -> "defer.Deferred[Tuple[T1, T2, T3]]":
-    ...
+) -> "defer.Deferred[Tuple[T1, T2, T3]]": ...
 
 
 @overload
@@ -395,8 +386,7 @@ def gather_results(
         "defer.Deferred[T4]",
     ],
     consumeErrors: bool = ...,
-) -> "defer.Deferred[Tuple[T1, T2, T3, T4]]":
-    ...
+) -> "defer.Deferred[Tuple[T1, T2, T3, T4]]": ...
 
 
 def gather_results(  # type: ignore[misc]
@@ -412,6 +402,112 @@ def gather_results(  # type: ignore[misc]
     # "Overloaded function implementation cannot produce return type of signature 1/2/3"
     deferred = defer.gatherResults(deferredList, consumeErrors=consumeErrors)
     return deferred.addCallback(tuple)
+
+
+@overload
+async def gather_optional_coroutines(
+    *coroutines: Unpack[Tuple[Optional[Coroutine[Any, Any, T1]]]],
+) -> Tuple[Optional[T1]]: ...
+
+
+@overload
+async def gather_optional_coroutines(
+    *coroutines: Unpack[
+        Tuple[
+            Optional[Coroutine[Any, Any, T1]],
+            Optional[Coroutine[Any, Any, T2]],
+        ]
+    ],
+) -> Tuple[Optional[T1], Optional[T2]]: ...
+
+
+@overload
+async def gather_optional_coroutines(
+    *coroutines: Unpack[
+        Tuple[
+            Optional[Coroutine[Any, Any, T1]],
+            Optional[Coroutine[Any, Any, T2]],
+            Optional[Coroutine[Any, Any, T3]],
+        ]
+    ],
+) -> Tuple[Optional[T1], Optional[T2], Optional[T3]]: ...
+
+
+@overload
+async def gather_optional_coroutines(
+    *coroutines: Unpack[
+        Tuple[
+            Optional[Coroutine[Any, Any, T1]],
+            Optional[Coroutine[Any, Any, T2]],
+            Optional[Coroutine[Any, Any, T3]],
+            Optional[Coroutine[Any, Any, T4]],
+        ]
+    ],
+) -> Tuple[Optional[T1], Optional[T2], Optional[T3], Optional[T4]]: ...
+
+
+@overload
+async def gather_optional_coroutines(
+    *coroutines: Unpack[
+        Tuple[
+            Optional[Coroutine[Any, Any, T1]],
+            Optional[Coroutine[Any, Any, T2]],
+            Optional[Coroutine[Any, Any, T3]],
+            Optional[Coroutine[Any, Any, T4]],
+            Optional[Coroutine[Any, Any, T5]],
+        ]
+    ],
+) -> Tuple[Optional[T1], Optional[T2], Optional[T3], Optional[T4], Optional[T5]]: ...
+
+
+async def gather_optional_coroutines(
+    *coroutines: Unpack[Tuple[Optional[Coroutine[Any, Any, T1]], ...]],
+) -> Tuple[Optional[T1], ...]:
+    """Helper function that allows waiting on multiple coroutines at once.
+
+    The return value is a tuple of the return values of the coroutines in order.
+
+    If a `None` is passed instead of a coroutine, it will be ignored and a None
+    is returned in the tuple.
+
+    Note: For typechecking we need to have an explicit overload for each
+    distinct number of coroutines passed in. If you see type problems, it's
+    likely because you're using many arguments and you need to add a new
+    overload above.
+    """
+
+    try:
+        results = await make_deferred_yieldable(
+            defer.gatherResults(
+                [
+                    run_coroutine_in_background(coroutine)
+                    for coroutine in coroutines
+                    if coroutine is not None
+                ],
+                consumeErrors=True,
+            )
+        )
+
+        results_iter = iter(results)
+        return tuple(
+            next(results_iter) if coroutine is not None else None
+            for coroutine in coroutines
+        )
+    except defer.FirstError as dfe:
+        # unwrap the error from defer.gatherResults.
+
+        # The raised exception's traceback only includes func() etc if
+        # the 'await' happens before the exception is thrown - ie if the failure
+        # happens *asynchronously* - otherwise Twisted throws away the traceback as it
+        # could be large.
+        #
+        # We could maybe reconstruct a fake traceback from Failure.frames. Or maybe
+        # we could throw Twisted into the fires of Mordor.
+
+        # suppress exception chaining, because the FirstError doesn't tell us anything
+        # very interesting.
+        assert isinstance(dfe.subFailure.value, BaseException)
+        raise dfe.subFailure.value from None
 
 
 @attr.s(slots=True, auto_attribs=True)
@@ -781,18 +877,15 @@ def stop_cancellation(deferred: "defer.Deferred[T]") -> "defer.Deferred[T]":
 
 
 @overload
-def delay_cancellation(awaitable: "defer.Deferred[T]") -> "defer.Deferred[T]":
-    ...
+def delay_cancellation(awaitable: "defer.Deferred[T]") -> "defer.Deferred[T]": ...
 
 
 @overload
-def delay_cancellation(awaitable: Coroutine[Any, Any, T]) -> "defer.Deferred[T]":
-    ...
+def delay_cancellation(awaitable: Coroutine[Any, Any, T]) -> "defer.Deferred[T]": ...
 
 
 @overload
-def delay_cancellation(awaitable: Awaitable[T]) -> Awaitable[T]:
-    ...
+def delay_cancellation(awaitable: Awaitable[T]) -> Awaitable[T]: ...
 
 
 def delay_cancellation(awaitable: Awaitable[T]) -> Awaitable[T]:
@@ -900,3 +993,46 @@ class AwakenableSleeper:
             # Cancel the sleep if we were woken up
             if call.active():
                 call.cancel()
+
+
+class DeferredEvent:
+    """Like threading.Event but for async code"""
+
+    def __init__(self, reactor: IReactorTime) -> None:
+        self._reactor = reactor
+        self._deferred: "defer.Deferred[None]" = defer.Deferred()
+
+    def set(self) -> None:
+        if not self._deferred.called:
+            self._deferred.callback(None)
+
+    def clear(self) -> None:
+        if self._deferred.called:
+            self._deferred = defer.Deferred()
+
+    def is_set(self) -> bool:
+        return self._deferred.called
+
+    async def wait(self, timeout_seconds: float) -> bool:
+        if self.is_set():
+            return True
+
+        # Create a deferred that gets called in N seconds
+        sleep_deferred: "defer.Deferred[None]" = defer.Deferred()
+        call = self._reactor.callLater(timeout_seconds, sleep_deferred.callback, None)
+
+        try:
+            await make_deferred_yieldable(
+                defer.DeferredList(
+                    [sleep_deferred, self._deferred],
+                    fireOnOneCallback=True,
+                    fireOnOneErrback=True,
+                    consumeErrors=True,
+                )
+            )
+        finally:
+            # Cancel the sleep if we were woken up
+            if call.active():
+                call.cancel()
+
+        return self.is_set()

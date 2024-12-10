@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -33,6 +35,7 @@ from typing import (
     Iterable,
     Iterator,
     List,
+    Mapping,
     Optional,
     Sequence,
     Tuple,
@@ -62,6 +65,7 @@ from synapse.metrics.background_process_metrics import run_as_background_process
 from synapse.storage.background_updates import BackgroundUpdater
 from synapse.storage.engines import BaseDatabaseEngine, PostgresEngine, Sqlite3Engine
 from synapse.storage.types import Connection, Cursor, SQLQueryParameters
+from synapse.types import StrCollection
 from synapse.util.async_helpers import delay_cancellation
 from synapse.util.iterutils import batch_iter
 
@@ -109,8 +113,7 @@ class _PoolConnection(Connection):
     A Connection from twisted.enterprise.adbapi.Connection.
     """
 
-    def reconnect(self) -> None:
-        ...
+    def reconnect(self) -> None: ...
 
 
 def make_pool(
@@ -912,9 +915,9 @@ class DatabasePool:
 
             try:
                 with opentracing.start_active_span(f"db.{desc}"):
-                    result = await self.runWithConnection(
+                    result: R = await self.runWithConnection(
                         # mypy seems to have an issue with this, maybe a bug?
-                        self.new_transaction,  # type: ignore[arg-type]
+                        self.new_transaction,
                         desc,
                         after_callbacks,
                         async_after_callbacks,
@@ -933,7 +936,7 @@ class DatabasePool:
                     await async_callback(*async_args, **async_kwargs)
                 for after_callback, after_args, after_kwargs in after_callbacks:
                     after_callback(*after_args, **after_kwargs)
-                return cast(R, result)
+                return result
             except Exception:
                 for exception_callback, after_args, after_kwargs in exception_callbacks:
                     exception_callback(*after_args, **after_kwargs)
@@ -1094,6 +1097,48 @@ class DatabasePool:
 
         txn.execute(sql, vals)
 
+    @staticmethod
+    def simple_insert_returning_txn(
+        txn: LoggingTransaction,
+        table: str,
+        values: Dict[str, Any],
+        returning: StrCollection,
+    ) -> Tuple[Any, ...]:
+        """Executes a `INSERT INTO... RETURNING...` statement (or equivalent for
+        SQLite versions that don't support it).
+        """
+
+        if txn.database_engine.supports_returning:
+            sql = "INSERT INTO %s (%s) VALUES(%s) RETURNING %s" % (
+                table,
+                ", ".join(k for k in values.keys()),
+                ", ".join("?" for _ in values.keys()),
+                ", ".join(k for k in returning),
+            )
+
+            txn.execute(sql, list(values.values()))
+            row = txn.fetchone()
+            assert row is not None
+            return row
+        else:
+            # For old versions of SQLite we do a standard insert and then can
+            # use `last_insert_rowid` to get at the row we just inserted
+            DatabasePool.simple_insert_txn(
+                txn,
+                table=table,
+                values=values,
+            )
+            txn.execute("SELECT last_insert_rowid()")
+            row = txn.fetchone()
+            assert row is not None
+            (rowid,) = row
+
+            row = DatabasePool.simple_select_one_txn(
+                txn, table=table, keyvalues={"rowid": rowid}, retcols=returning
+            )
+            assert row is not None
+            return row
+
     async def simple_insert_many(
         self,
         table: str,
@@ -1253,9 +1298,9 @@ class DatabasePool:
         self,
         txn: LoggingTransaction,
         table: str,
-        keyvalues: Dict[str, Any],
-        values: Dict[str, Any],
-        insertion_values: Optional[Dict[str, Any]] = None,
+        keyvalues: Mapping[str, Any],
+        values: Mapping[str, Any],
+        insertion_values: Optional[Mapping[str, Any]] = None,
         where_clause: Optional[str] = None,
     ) -> bool:
         """
@@ -1298,9 +1343,9 @@ class DatabasePool:
         self,
         txn: LoggingTransaction,
         table: str,
-        keyvalues: Dict[str, Any],
-        values: Dict[str, Any],
-        insertion_values: Optional[Dict[str, Any]] = None,
+        keyvalues: Mapping[str, Any],
+        values: Mapping[str, Any],
+        insertion_values: Optional[Mapping[str, Any]] = None,
         where_clause: Optional[str] = None,
         lock: bool = True,
     ) -> bool:
@@ -1321,7 +1366,7 @@ class DatabasePool:
 
         if lock:
             # We need to lock the table :(
-            self.engine.lock_table(txn, table)
+            txn.database_engine.lock_table(txn, table)
 
         def _getwhere(key: str) -> str:
             # If the value we're passing in is None (aka NULL), we need to use
@@ -1375,13 +1420,13 @@ class DatabasePool:
         # successfully inserted
         return True
 
+    @staticmethod
     def simple_upsert_txn_native_upsert(
-        self,
         txn: LoggingTransaction,
         table: str,
-        keyvalues: Dict[str, Any],
-        values: Dict[str, Any],
-        insertion_values: Optional[Dict[str, Any]] = None,
+        keyvalues: Mapping[str, Any],
+        values: Mapping[str, Any],
+        insertion_values: Optional[Mapping[str, Any]] = None,
         where_clause: Optional[str] = None,
     ) -> bool:
         """
@@ -1534,8 +1579,8 @@ class DatabasePool:
 
             self.simple_upsert_txn_emulated(txn, table, _keys, _vals, lock=False)
 
+    @staticmethod
     def simple_upsert_many_txn_native_upsert(
-        self,
         txn: LoggingTransaction,
         table: str,
         key_names: Collection[str],
@@ -1601,8 +1646,7 @@ class DatabasePool:
         retcols: Collection[str],
         allow_none: Literal[False] = False,
         desc: str = "simple_select_one",
-    ) -> Tuple[Any, ...]:
-        ...
+    ) -> Tuple[Any, ...]: ...
 
     @overload
     async def simple_select_one(
@@ -1612,8 +1656,7 @@ class DatabasePool:
         retcols: Collection[str],
         allow_none: Literal[True] = True,
         desc: str = "simple_select_one",
-    ) -> Optional[Tuple[Any, ...]]:
-        ...
+    ) -> Optional[Tuple[Any, ...]]: ...
 
     async def simple_select_one(
         self,
@@ -1652,8 +1695,7 @@ class DatabasePool:
         retcol: str,
         allow_none: Literal[False] = False,
         desc: str = "simple_select_one_onecol",
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
     @overload
     async def simple_select_one_onecol(
@@ -1663,8 +1705,7 @@ class DatabasePool:
         retcol: str,
         allow_none: Literal[True] = True,
         desc: str = "simple_select_one_onecol",
-    ) -> Optional[Any]:
-        ...
+    ) -> Optional[Any]: ...
 
     async def simple_select_one_onecol(
         self,
@@ -1704,8 +1745,7 @@ class DatabasePool:
         keyvalues: Dict[str, Any],
         retcol: str,
         allow_none: Literal[False] = False,
-    ) -> Any:
-        ...
+    ) -> Any: ...
 
     @overload
     @classmethod
@@ -1716,8 +1756,7 @@ class DatabasePool:
         keyvalues: Dict[str, Any],
         retcol: str,
         allow_none: Literal[True] = True,
-    ) -> Optional[Any]:
-        ...
+    ) -> Optional[Any]: ...
 
     @classmethod
     def simple_select_one_onecol_txn(
@@ -1971,8 +2010,8 @@ class DatabasePool:
     def simple_update_txn(
         txn: LoggingTransaction,
         table: str,
-        keyvalues: Dict[str, Any],
-        updatevalues: Dict[str, Any],
+        keyvalues: Mapping[str, Any],
+        updatevalues: Mapping[str, Any],
     ) -> int:
         """
         Update rows in the given database table.
@@ -2466,7 +2505,11 @@ class DatabasePool:
 
 
 def make_in_list_sql_clause(
-    database_engine: BaseDatabaseEngine, column: str, iterable: Collection[Any]
+    database_engine: BaseDatabaseEngine,
+    column: str,
+    iterable: Collection[Any],
+    *,
+    negative: bool = False,
 ) -> Tuple[str, list]:
     """Returns an SQL clause that checks the given column is in the iterable.
 
@@ -2479,6 +2522,7 @@ def make_in_list_sql_clause(
         database_engine
         column: Name of the column
         iterable: The values to check the column against.
+        negative: Whether we should check for inequality, i.e. `NOT IN`
 
     Returns:
         A tuple of SQL query and the args
@@ -2487,9 +2531,19 @@ def make_in_list_sql_clause(
     if database_engine.supports_using_any_list:
         # This should hopefully be faster, but also makes postgres query
         # stats easier to understand.
-        return "%s = ANY(?)" % (column,), [list(iterable)]
+        if not negative:
+            clause = f"{column} = ANY(?)"
+        else:
+            clause = f"{column} != ALL(?)"
+
+        return clause, [list(iterable)]
     else:
-        return "%s IN (%s)" % (column, ",".join("?" for _ in iterable)), list(iterable)
+        params = ",".join("?" for _ in iterable)
+        if not negative:
+            clause = f"{column} IN ({params})"
+        else:
+            clause = f"{column} NOT IN ({params})"
+        return clause, list(iterable)
 
 
 # These overloads ensure that `columns` and `iterable` values have the same length.
@@ -2499,8 +2553,7 @@ def make_tuple_in_list_sql_clause(
     database_engine: BaseDatabaseEngine,
     columns: Tuple[str, str],
     iterable: Collection[Tuple[Any, Any]],
-) -> Tuple[str, list]:
-    ...
+) -> Tuple[str, list]: ...
 
 
 def make_tuple_in_list_sql_clause(

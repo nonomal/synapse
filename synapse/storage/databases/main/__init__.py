@@ -1,7 +1,9 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
-# Copyright (C) 2023 New Vector, Ltd
+# Copyright 2019-2021 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
+# Copyright (C) 2023-2024 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -31,6 +33,7 @@ from synapse.storage.database import (
     LoggingDatabaseConnection,
     LoggingTransaction,
 )
+from synapse.storage.databases.main.sliding_sync import SlidingSyncStore
 from synapse.storage.databases.main.stats import UserSortOrder
 from synapse.storage.engines import BaseDatabaseEngine
 from synapse.storage.types import Cursor
@@ -41,6 +44,7 @@ from .appservice import ApplicationServiceStore, ApplicationServiceTransactionSt
 from .cache import CacheInvalidationWorkerStore
 from .censor_events import CensorEventsStore
 from .client_ips import ClientIpWorkerStore
+from .delayed_events import DelayedEventsStore
 from .deviceinbox import DeviceInboxStore
 from .devices import DeviceStore
 from .directory import DirectoryStore
@@ -61,7 +65,7 @@ from .openid import OpenIdStore
 from .presence import PresenceStore
 from .profile import ProfileStore
 from .purge_events import PurgeEventsStore
-from .push_rule import PushRuleStore
+from .push_rule import PushRulesWorkerStore
 from .pusher import PusherStore
 from .receipts import ReceiptsStore
 from .registration import RegistrationStore
@@ -128,7 +132,6 @@ class DataStore(
     RejectionsStore,
     FilteringWorkerStore,
     PusherStore,
-    PushRuleStore,
     ApplicationServiceTransactionStore,
     EventPushActionsStore,
     ServerMetricsStore,
@@ -138,6 +141,7 @@ class DataStore(
     SearchStore,
     TagsStore,
     AccountDataStore,
+    PushRulesWorkerStore,
     StreamWorkerStore,
     OpenIdStore,
     ClientIpWorkerStore,
@@ -154,6 +158,8 @@ class DataStore(
     LockStore,
     SessionStore,
     TaskSchedulerWorkerStore,
+    SlidingSyncStore,
+    DelayedEventsStore,
 ):
     def __init__(
         self,
@@ -174,7 +180,7 @@ class DataStore(
         user_id: Optional[str] = None,
         name: Optional[str] = None,
         guests: bool = True,
-        deactivated: bool = False,
+        deactivated: Optional[bool] = None,
         admins: Optional[bool] = None,
         order_by: str = UserSortOrder.NAME.value,
         direction: Direction = Direction.FORWARDS,
@@ -230,8 +236,11 @@ class DataStore(
             if not guests:
                 filters.append("is_guest = 0")
 
-            if not deactivated:
-                filters.append("deactivated = 0")
+            if deactivated is not None:
+                if deactivated:
+                    filters.append("deactivated = 1")
+                else:
+                    filters.append("deactivated = 0")
 
             if not locked:
                 filters.append("locked IS FALSE")

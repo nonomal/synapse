@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,8 +19,8 @@
 #
 #
 
-"""This module contains base REST classes for constructing client v1 servlets.
-"""
+"""This module contains base REST classes for constructing client v1 servlets."""
+
 import logging
 import re
 from typing import Any, Awaitable, Callable, Iterable, Pattern, Tuple, TypeVar, cast

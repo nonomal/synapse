@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 Sorunome
+# Copyright 2014-2022 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -877,6 +879,9 @@ class FederationHandler:
 
         if stripped_room_state is None:
             raise KeyError("Missing 'knock_room_state' field in send_knock response")
+
+        if not isinstance(stripped_room_state, list):
+            raise TypeError("'knock_room_state' has wrong type")
 
         event.unsigned["knock_room_state"] = stripped_room_state
 

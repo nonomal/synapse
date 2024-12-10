@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -41,14 +42,12 @@ class JemallocStats:
     @overload
     def _mallctl(
         self, name: str, read: Literal[True] = True, write: Optional[int] = None
-    ) -> int:
-        ...
+    ) -> int: ...
 
     @overload
     def _mallctl(
         self, name: str, read: Literal[False], write: Optional[int] = None
-    ) -> None:
-        ...
+    ) -> None: ...
 
     def _mallctl(
         self, name: str, read: bool = True, write: Optional[int] = None

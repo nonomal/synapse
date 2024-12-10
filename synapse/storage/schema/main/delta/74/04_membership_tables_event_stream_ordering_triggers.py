@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2022 Beeper
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -23,6 +24,7 @@
 This migration adds triggers to the room membership tables to enforce consistency.
 Triggers cannot be expressed in .sql files, so we have to use a separate file.
 """
+
 from synapse.storage.database import LoggingTransaction
 from synapse.storage.engines import BaseDatabaseEngine, PostgresEngine, Sqlite3Engine
 

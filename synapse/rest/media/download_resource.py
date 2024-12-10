@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020-2021 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -82,7 +84,7 @@ class DownloadResource(RestServlet):
 
         if self._is_mine_server_name(server_name):
             await self.media_repo.get_local_media(
-                request, media_id, file_name, max_timeout_ms
+                request, media_id, file_name, max_timeout_ms, allow_authenticated=False
             )
         else:
             allow_remote = parse_boolean(request, "allow_remote", default=True)
@@ -95,6 +97,14 @@ class DownloadResource(RestServlet):
                 respond_404(request)
                 return
 
+            ip_address = request.getClientAddress().host
             await self.media_repo.get_remote_media(
-                request, server_name, media_id, file_name, max_timeout_ms
+                request,
+                server_name,
+                media_id,
+                file_name,
+                max_timeout_ms,
+                ip_address,
+                False,
+                allow_authenticated=False,
             )

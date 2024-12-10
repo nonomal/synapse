@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021-22 The Matrix.org Foundation C.I.C.
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -50,6 +52,7 @@ def request_registration(
     user_type: Optional[str] = None,
     _print: Callable[[str], None] = print,
     exit: Callable[[int], None] = sys.exit,
+    exists_ok: bool = False,
 ) -> None:
     url = "%s/_synapse/admin/v1/register" % (server_location.rstrip("/"),)
 
@@ -95,6 +98,10 @@ def request_registration(
     r = requests.post(url, json=data)
 
     if r.status_code != 200:
+        response = r.json()
+        if exists_ok and response["errcode"] == "M_USER_IN_USE":
+            _print("User already exists. Skipping.")
+            return
         _print("ERROR! Received %d %s" % (r.status_code, r.reason))
         if 400 <= r.status_code < 500:
             try:
@@ -113,6 +120,7 @@ def register_new_user(
     shared_secret: str,
     admin: Optional[bool],
     user_type: Optional[str],
+    exists_ok: bool = False,
 ) -> None:
     if not user:
         try:
@@ -152,7 +160,13 @@ def register_new_user(
             admin = False
 
     request_registration(
-        user, password, server_location, shared_secret, bool(admin), user_type
+        user,
+        password,
+        server_location,
+        shared_secret,
+        bool(admin),
+        user_type,
+        exists_ok=exists_ok,
     )
 
 
@@ -172,10 +186,22 @@ def main() -> None:
         help="Local part of the new user. Will prompt if omitted.",
     )
     parser.add_argument(
+        "--exists-ok",
+        action="store_true",
+        help="Do not fail if user already exists.",
+    )
+    password_group = parser.add_mutually_exclusive_group()
+    password_group.add_argument(
         "-p",
         "--password",
         default=None,
-        help="New password for user. Will prompt if omitted.",
+        help="New password for user. Will prompt for a password if "
+        "this flag and `--password-file` are both omitted.",
+    )
+    password_group.add_argument(
+        "--password-file",
+        default=None,
+        help="File containing the new password for user. If set, will override `--password`.",
     )
     parser.add_argument(
         "-t",
@@ -183,6 +209,7 @@ def main() -> None:
         default=None,
         help="User type as specified in synapse.api.constants.UserTypes",
     )
+
     admin_group = parser.add_mutually_exclusive_group()
     admin_group.add_argument(
         "-a",
@@ -245,6 +272,11 @@ def main() -> None:
             print(_NO_SHARED_SECRET_OPTS_ERROR, file=sys.stderr)
             sys.exit(1)
 
+    if args.password_file:
+        password = _read_file(args.password_file, "password-file").strip()
+    else:
+        password = args.password
+
     if args.server_url:
         server_url = args.server_url
     elif config is not None:
@@ -268,7 +300,13 @@ def main() -> None:
         admin = args.admin
 
     register_new_user(
-        args.user, args.password, server_url, secret, admin, args.user_type
+        args.user,
+        password,
+        server_url,
+        secret,
+        admin,
+        args.user_type,
+        exists_ok=args.exists_ok,
     )
 
 

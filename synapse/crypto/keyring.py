@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -588,7 +589,7 @@ class BaseV2KeyFetcher(KeyFetcher):
                 % (server_name,)
             )
 
-        for key_id, key_data in response_json["old_verify_keys"].items():
+        for key_id, key_data in response_json.get("old_verify_keys", {}).items():
             if is_signing_algorithm_supported(key_id):
                 key_base64 = key_data["key"]
                 key_bytes = decode_base64(key_base64)
@@ -838,11 +839,12 @@ class ServerKeyFetcher(BaseV2KeyFetcher):
             Map from server_name -> key_id -> FetchKeyResult
         """
 
+        # We only need to do one request per server.
+        servers_to_fetch = {k.server_name for k in keys_to_fetch}
+
         results = {}
 
-        async def get_keys(key_to_fetch_item: _FetchKeyRequest) -> None:
-            server_name = key_to_fetch_item.server_name
-
+        async def get_keys(server_name: str) -> None:
             try:
                 keys = await self.get_server_verify_keys_v2_direct(server_name)
                 results[server_name] = keys
@@ -851,7 +853,7 @@ class ServerKeyFetcher(BaseV2KeyFetcher):
             except Exception:
                 logger.exception("Error getting keys from %s", server_name)
 
-        await yieldable_gather_results(get_keys, keys_to_fetch)
+        await yieldable_gather_results(get_keys, servers_to_fetch)
         return results
 
     async def get_server_verify_keys_v2_direct(

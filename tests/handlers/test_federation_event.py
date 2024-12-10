@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2022 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -287,13 +288,15 @@ class FederationEventHandlerTests(unittest.FederatingHomeserverTestCase):
         }
 
         # We also expect an outbound request to /state
-        self.mock_federation_transport_client.get_room_state.return_value = StateRequestResponse(
-            # Mimic the other server not knowing about the state at all.
-            # We want to cause Synapse to throw an error (`Unable to get
-            # missing prev_event $fake_prev_event`) and fail to backfill
-            # the pulled event.
-            auth_events=[],
-            state=[],
+        self.mock_federation_transport_client.get_room_state.return_value = (
+            StateRequestResponse(
+                # Mimic the other server not knowing about the state at all.
+                # We want to cause Synapse to throw an error (`Unable to get
+                # missing prev_event $fake_prev_event`) and fail to backfill
+                # the pulled event.
+                auth_events=[],
+                state=[],
+            )
         )
 
         pulled_event = make_event_from_dict(

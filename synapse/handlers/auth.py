@@ -1,6 +1,9 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 - 2020 The Matrix.org Foundation C.I.C.
+# Copyright 2017 Vector Creations Ltd
+# Copyright 2014 - 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -163,8 +166,7 @@ def login_id_phone_to_thirdparty(identifier: JsonDict) -> Dict[str, str]:
     if "country" not in identifier or (
         # The specification requires a "phone" field, while Synapse used to require a "number"
         # field. Accept both for backwards compatibility.
-        "phone" not in identifier
-        and "number" not in identifier
+        "phone" not in identifier and "number" not in identifier
     ):
         raise SynapseError(
             400, "Invalid phone-type identifier", errcode=Codes.INVALID_PARAM
@@ -2182,7 +2184,7 @@ class PasswordAuthProvider:
                 # result is always the right type, but as it is 3rd party code it might not be
 
                 if not isinstance(result, tuple) or len(result) != 2:
-                    logger.warning(
+                    logger.warning(  # type: ignore[unreachable]
                         "Wrong type returned by module API callback %s: %s, expected"
                         " Optional[Tuple[str, Optional[Callable]]]",
                         callback,
@@ -2245,7 +2247,7 @@ class PasswordAuthProvider:
                 # result is always the right type, but as it is 3rd party code it might not be
 
                 if not isinstance(result, tuple) or len(result) != 2:
-                    logger.warning(
+                    logger.warning(  # type: ignore[unreachable]
                         "Wrong type returned by module API callback %s: %s, expected"
                         " Optional[Tuple[str, Optional[Callable]]]",
                         callback,

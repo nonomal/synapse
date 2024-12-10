@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -92,9 +93,7 @@ class SrvResolverTestCase(unittest.TestCase):
         resolver = SrvResolver(dns_client=dns_client_mock, cache=cache)
 
         servers: List[Server]
-        servers = yield defer.ensureDeferred(
-            resolver.resolve_service(service_name)
-        )  # type: ignore[assignment]
+        servers = yield defer.ensureDeferred(resolver.resolve_service(service_name))  # type: ignore[assignment]
 
         dns_client_mock.lookupService.assert_called_once_with(service_name)
 
@@ -121,9 +120,7 @@ class SrvResolverTestCase(unittest.TestCase):
         )
 
         servers: List[Server]
-        servers = yield defer.ensureDeferred(
-            resolver.resolve_service(service_name)
-        )  # type: ignore[assignment]
+        servers = yield defer.ensureDeferred(resolver.resolve_service(service_name))  # type: ignore[assignment]
 
         self.assertFalse(dns_client_mock.lookupService.called)
 
@@ -156,9 +153,7 @@ class SrvResolverTestCase(unittest.TestCase):
         resolver = SrvResolver(dns_client=dns_client_mock, cache=cache)
 
         servers: List[Server]
-        servers = yield defer.ensureDeferred(
-            resolver.resolve_service(service_name)
-        )  # type: ignore[assignment]
+        servers = yield defer.ensureDeferred(resolver.resolve_service(service_name))  # type: ignore[assignment]
 
         self.assertEqual(len(servers), 0)
         self.assertEqual(len(cache), 0)

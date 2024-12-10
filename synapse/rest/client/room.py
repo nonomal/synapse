@@ -1,7 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
-# Copyright (C) 2023 New Vector, Ltd
+# Copyright 2014-2016 OpenMarket Ltd
+# Copyright (C) 2023-2024 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as
@@ -18,7 +19,8 @@
 #
 #
 
-""" This module contains REST servlets to do with rooms: /rooms/<paths> """
+"""This module contains REST servlets to do with rooms: /rooms/<paths>"""
+
 import logging
 import re
 from enum import Enum
@@ -51,6 +53,7 @@ from synapse.http.servlet import (
     parse_boolean,
     parse_enum,
     parse_integer,
+    parse_json,
     parse_json_object_from_request,
     parse_string,
     parse_strings_from_args,
@@ -64,9 +67,9 @@ from synapse.rest.client.transactions import HttpTransactionCache
 from synapse.streams.config import PaginationConfig
 from synapse.types import JsonDict, Requester, StreamToken, ThirdPartyInstanceID, UserID
 from synapse.types.state import StateFilter
-from synapse.util import json_decoder
 from synapse.util.cancellation import cancellable
-from synapse.util.stringutils import parse_and_validate_server_name, random_string
+from synapse.util.events import generate_fake_event_id
+from synapse.util.stringutils import parse_and_validate_server_name
 
 if TYPE_CHECKING:
     from synapse.server import HomeServer
@@ -192,7 +195,9 @@ class RoomStateEventRestServlet(RestServlet):
         self.event_creation_handler = hs.get_event_creation_handler()
         self.room_member_handler = hs.get_room_member_handler()
         self.message_handler = hs.get_message_handler()
+        self.delayed_events_handler = hs.get_delayed_events_handler()
         self.auth = hs.get_auth()
+        self._max_event_delay_ms = hs.config.server.max_event_delay_ms
 
     def register(self, http_server: HttpServer) -> None:
         # /rooms/$roomid/state/$eventtype
@@ -288,9 +293,28 @@ class RoomStateEventRestServlet(RestServlet):
         if requester.app_service:
             origin_server_ts = parse_integer(request, "ts")
 
+        delay = _parse_request_delay(request, self._max_event_delay_ms)
+        if delay is not None:
+            delay_id = await self.delayed_events_handler.add(
+                requester,
+                room_id=room_id,
+                event_type=event_type,
+                state_key=state_key,
+                origin_server_ts=origin_server_ts,
+                content=content,
+                delay=delay,
+            )
+
+            set_tag("delay_id", delay_id)
+            ret = {"delay_id": delay_id}
+            return 200, ret
+
         try:
             if event_type == EventTypes.Member:
                 membership = content.get("membership", None)
+                if not isinstance(membership, str):
+                    raise SynapseError(400, "Invalid membership (must be a string)")
+
                 event_id, _ = await self.room_member_handler.update_membership(
                     requester,
                     target=UserID.from_string(state_key),
@@ -321,7 +345,7 @@ class RoomStateEventRestServlet(RestServlet):
                 )
                 event_id = event.event_id
         except ShadowBanError:
-            event_id = "$" + random_string(43)
+            event_id = generate_fake_event_id()
 
         set_tag("event_id", event_id)
         ret = {"event_id": event_id}
@@ -335,7 +359,9 @@ class RoomSendEventRestServlet(TransactionRestServlet):
     def __init__(self, hs: "HomeServer"):
         super().__init__(hs)
         self.event_creation_handler = hs.get_event_creation_handler()
+        self.delayed_events_handler = hs.get_delayed_events_handler()
         self.auth = hs.get_auth()
+        self._max_event_delay_ms = hs.config.server.max_event_delay_ms
 
     def register(self, http_server: HttpServer) -> None:
         # /rooms/$roomid/send/$event_type[/$txn_id]
@@ -352,6 +378,26 @@ class RoomSendEventRestServlet(TransactionRestServlet):
     ) -> Tuple[int, JsonDict]:
         content = parse_json_object_from_request(request)
 
+        origin_server_ts = None
+        if requester.app_service:
+            origin_server_ts = parse_integer(request, "ts")
+
+        delay = _parse_request_delay(request, self._max_event_delay_ms)
+        if delay is not None:
+            delay_id = await self.delayed_events_handler.add(
+                requester,
+                room_id=room_id,
+                event_type=event_type,
+                state_key=None,
+                origin_server_ts=origin_server_ts,
+                content=content,
+                delay=delay,
+            )
+
+            set_tag("delay_id", delay_id)
+            ret = {"delay_id": delay_id}
+            return 200, ret
+
         event_dict: JsonDict = {
             "type": event_type,
             "content": content,
@@ -359,10 +405,8 @@ class RoomSendEventRestServlet(TransactionRestServlet):
             "sender": requester.user.to_string(),
         }
 
-        if requester.app_service:
-            origin_server_ts = parse_integer(request, "ts")
-            if origin_server_ts is not None:
-                event_dict["origin_server_ts"] = origin_server_ts
+        if origin_server_ts is not None:
+            event_dict["origin_server_ts"] = origin_server_ts
 
         try:
             (
@@ -373,7 +417,7 @@ class RoomSendEventRestServlet(TransactionRestServlet):
             )
             event_id = event.event_id
         except ShadowBanError:
-            event_id = "$" + random_string(43)
+            event_id = generate_fake_event_id()
 
         set_tag("event_id", event_id)
         return 200, {"event_id": event_id}
@@ -405,6 +449,49 @@ class RoomSendEventRestServlet(TransactionRestServlet):
         )
 
 
+def _parse_request_delay(
+    request: SynapseRequest,
+    max_delay: Optional[int],
+) -> Optional[int]:
+    """Parses from the request string the delay parameter for
+        delayed event requests, and checks it for correctness.
+
+    Args:
+        request: the twisted HTTP request.
+        max_delay: the maximum allowed value of the delay parameter,
+            or None if no delay parameter is allowed.
+    Returns:
+        The value of the requested delay, or None if it was absent.
+
+    Raises:
+        SynapseError: if the delay parameter is present and forbidden,
+            or if it exceeds the maximum allowed value.
+    """
+    delay = parse_integer(request, "org.matrix.msc4140.delay")
+    if delay is None:
+        return None
+    if max_delay is None:
+        raise SynapseError(
+            HTTPStatus.BAD_REQUEST,
+            "Delayed events are not supported on this server",
+            Codes.UNKNOWN,
+            {
+                "org.matrix.msc4140.errcode": "M_MAX_DELAY_UNSUPPORTED",
+            },
+        )
+    if delay > max_delay:
+        raise SynapseError(
+            HTTPStatus.BAD_REQUEST,
+            "The requested delay exceeds the allowed maximum.",
+            Codes.UNKNOWN,
+            {
+                "org.matrix.msc4140.errcode": "M_MAX_DELAY_EXCEEDED",
+                "org.matrix.msc4140.max_delay": max_delay,
+            },
+        )
+    return delay
+
+
 # TODO: Needs unit testing for room ID + alias joins
 class JoinRoomAliasServlet(ResolveRoomIdMixin, TransactionRestServlet):
     CATEGORY = "Event sending requests"
@@ -430,7 +517,12 @@ class JoinRoomAliasServlet(ResolveRoomIdMixin, TransactionRestServlet):
 
         # twisted.web.server.Request.args is incorrectly defined as Optional[Any]
         args: Dict[bytes, List[bytes]] = request.args  # type: ignore
-        remote_room_hosts = parse_strings_from_args(args, "server_name", required=False)
+        # Prefer via over server_name (deprecated with MSC4156)
+        remote_room_hosts = parse_strings_from_args(args, "via", required=False)
+        if remote_room_hosts is None:
+            remote_room_hosts = parse_strings_from_args(
+                args, "server_name", required=False
+            )
         room_id, remote_room_hosts = await self.resolve_room_id(
             room_identifier,
             remote_room_hosts,
@@ -702,21 +794,16 @@ class RoomMessageListRestServlet(RestServlet):
         )
         # Twisted will have processed the args by now.
         assert request.args is not None
+
+        filter_json = parse_json(request, "filter", encoding="utf-8")
+        event_filter = Filter(self._hs, filter_json) if filter_json else None
+
         as_client_event = b"raw" not in request.args
-        filter_str = parse_string(request, "filter", encoding="utf-8")
-        if filter_str:
-            filter_json = urlparse.unquote(filter_str)
-            event_filter: Optional[Filter] = Filter(
-                self._hs, json_decoder.decode(filter_json)
-            )
-            if (
-                event_filter
-                and event_filter.filter_json.get("event_format", "client")
-                == "federation"
-            ):
-                as_client_event = False
-        else:
-            event_filter = None
+        if (
+            event_filter
+            and event_filter.filter_json.get("event_format", "client") == "federation"
+        ):
+            as_client_event = False
 
         msgs = await self.pagination_handler.get_messages(
             room_id=room_id,
@@ -897,14 +984,8 @@ class RoomEventContextServlet(RestServlet):
         limit = parse_integer(request, "limit", default=10)
 
         # picking the API shape for symmetry with /messages
-        filter_str = parse_string(request, "filter", encoding="utf-8")
-        if filter_str:
-            filter_json = urlparse.unquote(filter_str)
-            event_filter: Optional[Filter] = Filter(
-                self._hs, json_decoder.decode(filter_json)
-            )
-        else:
-            event_filter = None
+        filter_json = parse_json(request, "filter", encoding="utf-8")
+        event_filter = Filter(self._hs, filter_json) if filter_json else None
 
         event_context = await self.room_context_handler.get_event_context(
             requester, room_id, event_id, limit, event_filter
@@ -1119,6 +1200,20 @@ class RoomRedactEventRestServlet(TransactionRestServlet):
     ) -> Tuple[int, JsonDict]:
         content = parse_json_object_from_request(request)
 
+        requester_suspended = await self._store.get_user_suspended_status(
+            requester.user.to_string()
+        )
+
+        if requester_suspended:
+            event = await self._store.get_event(event_id, allow_none=True)
+            if event:
+                if event.sender != requester.user.to_string():
+                    raise SynapseError(
+                        403,
+                        "You can only redact your own events while account is suspended.",
+                        Codes.USER_ACCOUNT_SUSPENDED,
+                    )
+
         # Ensure the redacts property in the content matches the one provided in
         # the URL.
         room_version = await self._store.get_room_version(room_id)
@@ -1178,7 +1273,7 @@ class RoomRedactEventRestServlet(TransactionRestServlet):
 
             event_id = event.event_id
         except ShadowBanError:
-            event_id = "$" + random_string(43)
+            event_id = generate_fake_event_id()
 
         set_tag("event_id", event_id)
         return 200, {"event_id": event_id}
@@ -1429,16 +1524,7 @@ class RoomHierarchyRestServlet(RestServlet):
         requester = await self._auth.get_user_by_req(request, allow_guest=True)
 
         max_depth = parse_integer(request, "max_depth")
-        if max_depth is not None and max_depth < 0:
-            raise SynapseError(
-                400, "'max_depth' must be a non-negative integer", Codes.BAD_JSON
-            )
-
         limit = parse_integer(request, "limit")
-        if limit is not None and limit <= 0:
-            raise SynapseError(
-                400, "'limit' must be a positive integer", Codes.BAD_JSON
-            )
 
         return 200, await self._room_summary_handler.get_room_hierarchy(
             requester,
@@ -1452,9 +1538,15 @@ class RoomHierarchyRestServlet(RestServlet):
 
 class RoomSummaryRestServlet(ResolveRoomIdMixin, RestServlet):
     PATTERNS = (
+        # deprecated endpoint, to be removed
         re.compile(
             "^/_matrix/client/unstable/im.nheko.summary"
             "/rooms/(?P<room_identifier>[^/]*)/summary$"
+        ),
+        # recommended endpoint
+        re.compile(
+            "^/_matrix/client/unstable/im.nheko.summary"
+            "/summary/(?P<room_identifier>[^/]*)$"
         ),
     )
     CATEGORY = "Client API requests"

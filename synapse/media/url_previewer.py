@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020-2023 The Matrix.org Foundation C.I.C.
+# Copyright 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -590,7 +592,7 @@ class UrlPreviewer:
 
         file_info = FileInfo(server_name=None, file_id=file_id, url_cache=True)
 
-        with self.media_storage.store_into_file(file_info) as (f, fname, finish):
+        async with self.media_storage.store_into_file(file_info) as (f, fname):
             if url.startswith("data:"):
                 if not allow_data_urls:
                     raise SynapseError(
@@ -600,8 +602,6 @@ class UrlPreviewer:
                 download_result = await self._parse_data_url(url, f)
             else:
                 download_result = await self._download_url(url, f)
-
-            await finish()
 
         try:
             time_now_ms = self.clock.time_msec()

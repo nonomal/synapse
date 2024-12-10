@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -69,9 +70,9 @@ class ExternalCache:
 
     def __init__(self, hs: "HomeServer"):
         if hs.config.redis.redis_enabled:
-            self._redis_connection: Optional[
-                "ConnectionHandler"
-            ] = hs.get_outbound_redis_connection()
+            self._redis_connection: Optional["ConnectionHandler"] = (
+                hs.get_outbound_redis_connection()
+            )
         else:
             self._redis_connection = None
 

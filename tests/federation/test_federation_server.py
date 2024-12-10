@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 Matrix.org Federation C.I.C
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -65,6 +66,23 @@ class FederationServerTests(unittest.FederatingHomeserverTestCase):
         )
         self.assertEqual(HTTPStatus.BAD_REQUEST, channel.code, channel.result)
         self.assertEqual(channel.json_body["errcode"], "M_NOT_JSON")
+
+    def test_failed_edu_causes_500(self) -> None:
+        """If the EDU handler fails, /send should return a 500."""
+
+        async def failing_handler(_origin: str, _content: JsonDict) -> None:
+            raise Exception("bleh")
+
+        self.hs.get_federation_registry().register_edu_handler(
+            "FAIL_EDU_TYPE", failing_handler
+        )
+
+        channel = self.make_signed_federation_request(
+            "PUT",
+            "/_matrix/federation/v1/send/txn",
+            {"edus": [{"edu_type": "FAIL_EDU_TYPE", "content": {}}]},
+        )
+        self.assertEqual(500, channel.code, channel.result)
 
 
 class ServerACLsTestCase(unittest.TestCase):

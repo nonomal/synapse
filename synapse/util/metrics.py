@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -109,7 +110,7 @@ def measure_func(
     """
 
     def wrapper(
-        func: Callable[Concatenate[HasClock, P], Awaitable[R]]
+        func: Callable[Concatenate[HasClock, P], Awaitable[R]],
     ) -> Callable[P, Awaitable[R]]:
         block_name = func.__name__ if name is None else name
 

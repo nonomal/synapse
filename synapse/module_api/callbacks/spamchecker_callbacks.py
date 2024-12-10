@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -454,7 +455,7 @@ class SpamCheckerModuleApiCallbacks:
                     # mypy complains that we can't reach this code because of the
                     # return type in CHECK_EVENT_FOR_SPAM_CALLBACK, but we don't know
                     # for sure that the module actually returns it.
-                    logger.warning(
+                    logger.warning(  # type: ignore[unreachable]
                         "Module returned invalid value, rejecting message as spam"
                     )
                     res = "This message has been rejected as probable spam"

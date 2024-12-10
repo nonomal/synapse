@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2022 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,17 +19,11 @@
 #
 #
 import unittest as stdlib_unittest
-from typing import TYPE_CHECKING
 
 from typing_extensions import Literal
 
-from synapse._pydantic_compat import HAS_PYDANTIC_V2
-from synapse.rest.client.models import EmailRequestTokenBody
-
-if TYPE_CHECKING or HAS_PYDANTIC_V2:
-    from pydantic.v1 import BaseModel, ValidationError
-else:
-    from pydantic import BaseModel, ValidationError
+from synapse._pydantic_compat import BaseModel, ValidationError
+from synapse.types.rest.client import EmailRequestTokenBody
 
 
 class ThreepidMediumEnumTestCase(stdlib_unittest.TestCase):

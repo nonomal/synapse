@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -75,7 +76,7 @@ class TestServletUtils(unittest.TestCase):
 
         # Invalid UTF-8.
         with self.assertRaises(SynapseError):
-            parse_json_value_from_request(make_request(b"\xFF\x00"))
+            parse_json_value_from_request(make_request(b"\xff\x00"))
 
         # Invalid JSON.
         with self.assertRaises(SynapseError):

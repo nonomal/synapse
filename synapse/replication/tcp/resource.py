@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2017 Vector Creations Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -17,8 +18,7 @@
 # [This file includes modifications made by New Vector Limited]
 #
 #
-"""The server side of the replication stream.
-"""
+"""The server side of the replication stream."""
 
 import logging
 import random
@@ -306,7 +306,7 @@ class ReplicationStreamer:
 
 
 def _batch_updates(
-    updates: List[Tuple[Token, StreamRow]]
+    updates: List[Tuple[Token, StreamRow]],
 ) -> List[Tuple[Optional[Token], StreamRow]]:
     """Takes a list of updates of form [(token, row)] and sets the token to
     None for all rows where the next row has the same token. This is used to

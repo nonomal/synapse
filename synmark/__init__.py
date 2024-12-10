@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -26,7 +27,9 @@ from synapse.types import ISynapseReactor
 try:
     from twisted.internet.epollreactor import EPollReactor as Reactor
 except ImportError:
-    from twisted.internet.pollreactor import PollReactor as Reactor  # type: ignore[assignment]
+    from twisted.internet.pollreactor import (  # type: ignore[assignment]
+        PollReactor as Reactor,
+    )
 from twisted.internet.main import installReactor
 
 

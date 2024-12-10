@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2017 Vector Creations Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,6 +23,7 @@ protocols.
 
 An explanation of this protocol is available in docs/tcp_replication.md
 """
+
 import fcntl
 import logging
 import struct

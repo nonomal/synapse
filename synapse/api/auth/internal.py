@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2023 The Matrix.org Foundation.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -27,6 +28,7 @@ from synapse.api.errors import (
     Codes,
     InvalidClientTokenError,
     MissingClientTokenError,
+    UnrecognizedRequestError,
 )
 from synapse.http.site import SynapseRequest
 from synapse.logging.opentracing import active_span, force_tracing, start_active_span
@@ -37,7 +39,9 @@ from . import GUEST_DEVICE_ID
 from .base import BaseAuth
 
 if TYPE_CHECKING:
+    from synapse.rest.admin.experimental_features import ExperimentalFeature
     from synapse.server import HomeServer
+
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +108,32 @@ class InternalAuth(BaseAuth):
                 if requester.app_service is not None:
                     parent_span.set_tag("appservice_id", requester.app_service.id)
             return requester
+
+    async def get_user_by_req_experimental_feature(
+        self,
+        request: SynapseRequest,
+        feature: "ExperimentalFeature",
+        allow_guest: bool = False,
+        allow_expired: bool = False,
+        allow_locked: bool = False,
+    ) -> Requester:
+        try:
+            requester = await self.get_user_by_req(
+                request,
+                allow_guest=allow_guest,
+                allow_expired=allow_expired,
+                allow_locked=allow_locked,
+            )
+            if await self.store.is_feature_enabled(requester.user.to_string(), feature):
+                return requester
+
+            raise UnrecognizedRequestError(code=404)
+        except (AuthError, InvalidClientTokenError):
+            if feature.is_globally_enabled(self.hs.config):
+                # If its globally enabled then return the auth error
+                raise
+
+            raise UnrecognizedRequestError(code=404)
 
     @cancellable
     async def _wrapped_get_user_by_req(

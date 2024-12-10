@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -18,7 +19,7 @@
 #
 #
 
-""" Tests REST events for /events paths."""
+"""Tests REST events for /events paths."""
 
 from unittest.mock import Mock
 

@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2023 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -26,6 +27,7 @@ from synapse.util import Clock
 
 from tests import unittest
 from tests.replication._base import BaseMultiWorkerStreamTestCase
+from tests.utils import test_timeout
 
 
 class WorkerLockTestCase(unittest.HomeserverTestCase):
@@ -48,6 +50,28 @@ class WorkerLockTestCase(unittest.HomeserverTestCase):
 
         self.get_success(d2)
         self.get_success(lock2.__aexit__(None, None, None))
+
+    def test_lock_contention(self) -> None:
+        """Test lock contention when a lot of locks wait on a single worker"""
+
+        # It takes around 0.5s on a 5+ years old laptop
+        with test_timeout(5):
+            nb_locks = 500
+            d = self._take_locks(nb_locks)
+            self.assertEqual(self.get_success(d), nb_locks)
+
+    async def _take_locks(self, nb_locks: int) -> int:
+        locks = [
+            self.hs.get_worker_locks_handler().acquire_lock("test_lock", "")
+            for _ in range(nb_locks)
+        ]
+
+        nb_locks_taken = 0
+        for lock in locks:
+            async with lock:
+                nb_locks_taken += 1
+
+        return nb_locks_taken
 
 
 class WorkerLockWorkersTestCase(BaseMultiWorkerStreamTestCase):

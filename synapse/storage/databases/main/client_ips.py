@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -237,9 +238,7 @@ class ClientIpBackgroundUpdateStore(SQLBaseStore):
                 INNER JOIN user_ips USING (user_id, access_token, ip)
                 GROUP BY user_id, access_token, ip
                 HAVING count(*) > 1
-                """.format(
-                    clause
-                ),
+                """.format(clause),
                 args,
             )
             res = cast(
@@ -372,9 +371,7 @@ class ClientIpBackgroundUpdateStore(SQLBaseStore):
                     LIMIT ?
                 ) c
                 INNER JOIN user_ips AS u USING (user_id, device_id, last_seen)
-            """ % {
-                "where_clause": where_clause
-            }
+            """ % {"where_clause": where_clause}
             txn.execute(sql, where_args + [batch_size])
 
             rows = cast(List[Tuple[int, str, str, str, str]], txn.fetchall())

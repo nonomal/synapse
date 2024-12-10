@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -71,7 +72,7 @@ class FilterTestCase(unittest.HomeserverTestCase):
 
     def test_add_filter_non_local_user(self) -> None:
         _is_mine = self.hs.is_mine
-        self.hs.is_mine = lambda target_user: False  # type: ignore[method-assign]
+        self.hs.is_mine = lambda target_user: False  # type: ignore[assignment]
         channel = self.make_request(
             "POST",
             "/_matrix/client/r0/user/%s/filter" % (self.user_id),

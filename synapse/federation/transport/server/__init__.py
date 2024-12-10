@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 Sorunome
+# Copyright 2014-2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -30,6 +32,8 @@ from synapse.federation.transport.server._base import (
 from synapse.federation.transport.server.federation import (
     FEDERATION_SERVLET_CLASSES,
     FederationAccountStatusServlet,
+    FederationMediaDownloadServlet,
+    FederationMediaThumbnailServlet,
     FederationUnstableClientKeysClaimServlet,
 )
 from synapse.http.server import HttpServer, JsonResource
@@ -267,6 +271,10 @@ SERVLET_GROUPS: Dict[str, Iterable[Type[BaseFederationServlet]]] = {
     "federation": FEDERATION_SERVLET_CLASSES,
     "room_list": (PublicRoomList,),
     "openid": (OpenIdUserInfo,),
+    "media": (
+        FederationMediaDownloadServlet,
+        FederationMediaThumbnailServlet,
+    ),
 }
 
 
@@ -312,6 +320,13 @@ def register_servlets(
                 and not hs.config.experimental.msc3983_appservice_otk_claims
             ):
                 continue
+
+            if (
+                servletclass == FederationMediaDownloadServlet
+                or servletclass == FederationMediaThumbnailServlet
+            ):
+                if not hs.config.media.can_load_media_repo:
+                    continue
 
             servletclass(
                 hs=hs,

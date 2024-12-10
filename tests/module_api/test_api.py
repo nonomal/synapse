@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -687,7 +688,7 @@ class ModuleApiTestCase(BaseModuleApiTestCase):
 
         channel = self.make_request(
             "GET",
-            "/notifications?from=",
+            "/notifications",
             access_token=tok,
         )
         self.assertEqual(channel.code, 200, channel.result)

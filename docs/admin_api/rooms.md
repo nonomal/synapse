@@ -36,6 +36,10 @@ The following query parameters are available:
   - the room's name,
   - the local part of the room's canonical alias, or
   - the complete (local and server part) room's id (case sensitive).
+* `public_rooms` - Optional flag to filter public rooms. If `true`, only public rooms are queried. If `false`, public rooms are excluded from
+  the query. When the flag is absent (the default), **both** public and non-public rooms are included in the search results.
+* `empty_rooms` - Optional flag to filter empty rooms. A room is empty if joined_members is zero. If `true`, only empty rooms are queried. If `false`, empty rooms are excluded from
+  the query. When the flag is absent (the default), **both** empty and non-empty rooms are included in the search results.
 
   Defaults to no filtering.
 
@@ -913,7 +917,7 @@ With all that being said, if you still want to try and recover the room:
    them handle rejoining themselves.
 
 4. If `new_room_user_id` was given, a 'Content Violation' will have been
-   created. Consider whether you want to delete that roomm.
+   created. Consider whether you want to delete that room.
 
 # Make Room Admin API
 

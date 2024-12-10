@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -74,9 +75,6 @@ class PaginationConfig:
             raise SynapseError(400, "'to' parameter is invalid")
 
         limit = parse_integer(request, "limit", default=default_limit)
-        if limit < 0:
-            raise SynapseError(400, "Limit must be 0 or above")
-
         limit = min(limit, MAX_LIMIT)
 
         try:

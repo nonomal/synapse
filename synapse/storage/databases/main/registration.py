@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019,2020 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -234,7 +236,8 @@ class RegistrationWorkerStore(CacheInvalidationWorkerStore):
                     consent_server_notice_sent, appservice_id, creation_ts, user_type,
                     deactivated, COALESCE(shadow_banned, FALSE) AS shadow_banned,
                     COALESCE(approved, TRUE) AS approved,
-                    COALESCE(locked, FALSE) AS locked
+                    COALESCE(locked, FALSE) AS locked,
+                    suspended
                 FROM users
                 WHERE name = ?
                 """,
@@ -259,6 +262,7 @@ class RegistrationWorkerStore(CacheInvalidationWorkerStore):
                 shadow_banned,
                 approved,
                 locked,
+                suspended,
             ) = row
 
             return UserInfo(
@@ -275,6 +279,7 @@ class RegistrationWorkerStore(CacheInvalidationWorkerStore):
                 user_type=user_type,
                 approved=bool(approved),
                 locked=bool(locked),
+                suspended=bool(suspended),
             )
 
         return await self.db_pool.runInteraction(
@@ -1178,6 +1183,27 @@ class RegistrationWorkerStore(CacheInvalidationWorkerStore):
         # Convert the potential integer into a boolean.
         return bool(res)
 
+    @cached()
+    async def get_user_suspended_status(self, user_id: str) -> bool:
+        """
+        Determine whether the user's account is suspended.
+            Args:
+                user_id: The user ID of the user in question
+            Returns:
+                True if the user's account is suspended, false if it is not suspended or
+                if the user ID cannot be found.
+        """
+
+        res = await self.db_pool.simple_select_one_onecol(
+            table="users",
+            keyvalues={"name": user_id},
+            retcol="suspended",
+            allow_none=True,
+            desc="get_user_suspended",
+        )
+
+        return bool(res)
+
     async def get_threepid_validation_session(
         self,
         medium: Optional[str],
@@ -1224,9 +1250,7 @@ class RegistrationWorkerStore(CacheInvalidationWorkerStore):
                 SELECT address, session_id, medium, client_secret,
                 last_send_attempt, validated_at
                 FROM threepid_validation_session WHERE %s
-                """ % (
-                " AND ".join("%s = ?" % k for k in keyvalues.keys()),
-            )
+                """ % (" AND ".join("%s = ?" % k for k in keyvalues.keys()),)
 
             if validated is not None:
                 sql += " AND validated_at IS " + ("NOT NULL" if validated else "NULL")
@@ -2106,6 +2130,13 @@ class RegistrationBackgroundUpdateStore(RegistrationWorkerStore):
             unique=False,
         )
 
+        self.db_pool.updates.register_background_index_update(
+            update_name="access_tokens_refresh_token_id_idx",
+            index_name="access_tokens_refresh_token_id_idx",
+            table="access_tokens",
+            columns=("refresh_token_id",),
+        )
+
     async def _background_update_set_deactivated_flag(
         self, progress: JsonDict, batch_size: int
     ) -> int:
@@ -2203,6 +2234,35 @@ class RegistrationBackgroundUpdateStore(RegistrationWorkerStore):
         )
         self._invalidate_cache_and_stream(txn, self.get_user_by_id, (user_id,))
         txn.call_after(self.is_guest.invalidate, (user_id,))
+
+    async def set_user_suspended_status(self, user_id: str, suspended: bool) -> None:
+        """
+        Set whether the user's account is suspended in the `users` table.
+
+        Args:
+            user_id: The user ID of the user in question
+            suspended: True if the user is suspended, false if not
+        """
+        await self.db_pool.runInteraction(
+            "set_user_suspended_status",
+            self.set_user_suspended_status_txn,
+            user_id,
+            suspended,
+        )
+
+    def set_user_suspended_status_txn(
+        self, txn: LoggingTransaction, user_id: str, suspended: bool
+    ) -> None:
+        self.db_pool.simple_update_one_txn(
+            txn=txn,
+            table="users",
+            keyvalues={"name": user_id},
+            updatevalues={"suspended": suspended},
+        )
+        self._invalidate_cache_and_stream(
+            txn, self.get_user_suspended_status, (user_id,)
+        )
+        self._invalidate_cache_and_stream(txn, self.get_user_by_id, (user_id,))
 
     async def set_user_locked_status(self, user_id: str, locked: bool) -> None:
         """Set the `locked` property for the provided user to the provided value.

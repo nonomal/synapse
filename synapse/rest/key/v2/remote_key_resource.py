@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,17 +23,11 @@ import logging
 import re
 from typing import TYPE_CHECKING, Dict, Mapping, Optional, Set, Tuple
 
-from synapse._pydantic_compat import HAS_PYDANTIC_V2
-
-if TYPE_CHECKING or HAS_PYDANTIC_V2:
-    from pydantic.v1 import Extra, StrictInt, StrictStr
-else:
-    from pydantic import StrictInt, StrictStr, Extra
-
 from signedjson.sign import sign_json
 
 from twisted.web.server import Request
 
+from synapse._pydantic_compat import Extra, StrictInt, StrictStr
 from synapse.crypto.keyring import ServerKeyFetcher
 from synapse.http.server import HttpServer
 from synapse.http.servlet import (
@@ -40,9 +35,9 @@ from synapse.http.servlet import (
     parse_and_validate_json_object_from_request,
     parse_integer,
 )
-from synapse.rest.models import RequestBodyModel
 from synapse.storage.keys import FetchKeyResultForRemote
 from synapse.types import JsonDict
+from synapse.types.rest import RequestBodyModel
 from synapse.util import json_decoder
 from synapse.util.async_helpers import yieldable_gather_results
 

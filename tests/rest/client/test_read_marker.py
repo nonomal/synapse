@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2023 Beeper
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -77,7 +78,7 @@ class ReadMarkerTestCase(unittest.HomeserverTestCase):
 
         channel = self.make_request(
             "POST",
-            "/rooms/!abc:beep/read_markers",
+            f"/rooms/{room_id}/read_markers",
             content={
                 "m.fully_read": event_id_1,
             },
@@ -89,7 +90,7 @@ class ReadMarkerTestCase(unittest.HomeserverTestCase):
         event_id_2 = send_message()
         channel = self.make_request(
             "POST",
-            "/rooms/!abc:beep/read_markers",
+            f"/rooms/{room_id}/read_markers",
             content={
                 "m.fully_read": event_id_2,
             },
@@ -122,7 +123,7 @@ class ReadMarkerTestCase(unittest.HomeserverTestCase):
 
         channel = self.make_request(
             "POST",
-            "/rooms/!abc:beep/read_markers",
+            f"/rooms/{room_id}/read_markers",
             content={
                 "m.fully_read": event_id_1,
             },
@@ -141,7 +142,7 @@ class ReadMarkerTestCase(unittest.HomeserverTestCase):
         event_id_2 = send_message()
         channel = self.make_request(
             "POST",
-            "/rooms/!abc:beep/read_markers",
+            f"/rooms/{room_id}/read_markers",
             content={
                 "m.fully_read": event_id_2,
             },

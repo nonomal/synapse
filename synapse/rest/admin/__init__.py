@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020, 2021 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -96,9 +98,12 @@ from synapse.rest.admin.users import (
     DeactivateAccountRestServlet,
     PushersRestServlet,
     RateLimitRestServlet,
+    RedactUser,
+    RedactUserStatus,
     ResetPasswordRestServlet,
     SearchUsersRestServlet,
     ShadowBanRestServlet,
+    SuspendAccountRestServlet,
     UserAdminServlet,
     UserByExternalId,
     UserByThreePid,
@@ -107,6 +112,7 @@ from synapse.rest.admin.users import (
     UserReplaceMasterCrossSigningKeyRestServlet,
     UserRestServletV2,
     UsersRestServletV2,
+    UsersRestServletV3,
     UserTokenRestServlet,
     WhoisRestServlet,
 )
@@ -234,10 +240,12 @@ class PurgeHistoryStatusRestServlet(RestServlet):
             raise NotFoundError("purge id '%s' not found" % purge_id)
 
         result: JsonDict = {
-            "status": purge_task.status
-            if purge_task.status == TaskStatus.COMPLETE
-            or purge_task.status == TaskStatus.FAILED
-            else "active",
+            "status": (
+                purge_task.status
+                if purge_task.status == TaskStatus.COMPLETE
+                or purge_task.status == TaskStatus.FAILED
+                else "active"
+            ),
         }
         if purge_task.error:
             result["error"] = purge_task.error
@@ -287,6 +295,7 @@ def register_servlets(hs: "HomeServer", http_server: HttpServer) -> None:
         UserTokenRestServlet(hs).register(http_server)
     UserRestServletV2(hs).register(http_server)
     UsersRestServletV2(hs).register(http_server)
+    UsersRestServletV3(hs).register(http_server)
     UserMediaStatisticsRestServlet(hs).register(http_server)
     LargestRoomsStatistics(hs).register(http_server)
     EventReportDetailRestServlet(hs).register(http_server)
@@ -312,6 +321,8 @@ def register_servlets(hs: "HomeServer", http_server: HttpServer) -> None:
     UserReplaceMasterCrossSigningKeyRestServlet(hs).register(http_server)
     UserByExternalId(hs).register(http_server)
     UserByThreePid(hs).register(http_server)
+    RedactUser(hs).register(http_server)
+    RedactUserStatus(hs).register(http_server)
 
     DeviceRestServlet(hs).register(http_server)
     DevicesRestServlet(hs).register(http_server)
@@ -321,6 +332,7 @@ def register_servlets(hs: "HomeServer", http_server: HttpServer) -> None:
     BackgroundUpdateRestServlet(hs).register(http_server)
     BackgroundUpdateStartJobRestServlet(hs).register(http_server)
     ExperimentalFeaturesRestServlet(hs).register(http_server)
+    SuspendAccountRestServlet(hs).register(http_server)
 
 
 def register_servlets_for_client_rest_resource(

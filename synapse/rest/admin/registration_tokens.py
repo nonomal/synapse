@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 Callum Brown
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -180,8 +181,7 @@ class NewRegistrationTokenRestServlet(RestServlet):
 
         uses_allowed = body.get("uses_allowed", None)
         if not (
-            uses_allowed is None
-            or (type(uses_allowed) is int and uses_allowed >= 0)  # noqa: E721
+            uses_allowed is None or (type(uses_allowed) is int and uses_allowed >= 0)  # noqa: E721
         ):
             raise SynapseError(
                 HTTPStatus.BAD_REQUEST,

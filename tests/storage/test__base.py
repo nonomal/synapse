@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -102,6 +103,24 @@ class UpdateUpsertManyTests(unittest.HomeserverTestCase):
                 key_values,
                 value_names,
                 value_values,
+            )
+        )
+
+        # Check results are what we expect
+        self.assertEqual(
+            set(self._dump_table_to_tuple()),
+            {(1, "user1", "hello"), (2, "user2", "bleb")},
+        )
+
+        self.get_success(
+            self.storage.db_pool.runInteraction(
+                "test",
+                self.storage.db_pool.simple_upsert_many_txn,
+                self.table_name,
+                key_names=key_names,
+                key_values=[[2, "user2"]],
+                value_names=[],
+                value_values=[],
             )
         )
 

@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -19,6 +21,7 @@
 #
 import datetime
 import logging
+from collections import OrderedDict
 from types import TracebackType
 from typing import TYPE_CHECKING, Dict, Hashable, Iterable, List, Optional, Tuple, Type
 
@@ -65,6 +68,10 @@ sent_edus_by_type = Counter(
 
 # If the retry interval is larger than this then we enter "catchup" mode
 CATCHUP_RETRY_INTERVAL = 60 * 60 * 1000
+
+# Limit how many presence states we add to each presence EDU, to ensure that
+# they are bounded in size.
+MAX_PRESENCE_STATES_PER_EDU = 50
 
 
 class PerDestinationQueue:
@@ -142,14 +149,13 @@ class PerDestinationQueue:
 
         # Map of user_id -> UserPresenceState of pending presence to be sent to this
         # destination
-        self._pending_presence: Dict[str, UserPresenceState] = {}
+        self._pending_presence: OrderedDict[str, UserPresenceState] = OrderedDict()
 
         # List of room_id -> receipt_type -> user_id -> receipt_dict,
         #
         # Each receipt can only have a single receipt per
         # (room ID, receipt type, user ID, thread ID) tuple.
         self._pending_receipt_edus: List[Dict[str, Dict[str, Dict[str, dict]]]] = []
-        self._rrs_pending_flush = False
 
         # stream_id of last successfully sent to-device message.
         # NB: may be a long or an int.
@@ -251,15 +257,7 @@ class PerDestinationQueue:
                 }
             )
 
-    def flush_read_receipts_for_room(self, room_id: str) -> None:
-        # If there are any pending receipts for this room then force-flush them
-        # in a new transaction.
-        for edu in self._pending_receipt_edus:
-            if room_id in edu:
-                self._rrs_pending_flush = True
-                self.attempt_new_transaction()
-                # No use in checking remaining EDUs if the room was found.
-                break
+        self.mark_new_data()
 
     def send_keyed_edu(self, edu: Edu, key: Hashable) -> None:
         self._pending_edus_keyed[(edu.edu_type, key)] = edu
@@ -331,12 +329,11 @@ class PerDestinationQueue:
                     # not caught up yet
                     return
 
-            pending_pdus = []
             while True:
                 self._new_data_to_send = False
 
                 async with _TransactionQueueManager(self) as (
-                    pending_pdus,
+                    pending_pdus,  # noqa: F811
                     pending_edus,
                 ):
                     if not pending_pdus and not pending_edus:
@@ -397,7 +394,7 @@ class PerDestinationQueue:
                 # through another mechanism, because this is all volatile!
                 self._pending_edus = []
                 self._pending_edus_keyed = {}
-                self._pending_presence = {}
+                self._pending_presence.clear()
                 self._pending_receipt_edus = []
 
                 self._start_catching_up()
@@ -597,11 +594,8 @@ class PerDestinationQueue:
                     self._destination, last_successful_stream_ordering
                 )
 
-    def _get_receipt_edus(self, force_flush: bool, limit: int) -> Iterable[Edu]:
+    def _get_receipt_edus(self, limit: int) -> Iterable[Edu]:
         if not self._pending_receipt_edus:
-            return
-        if not force_flush and not self._rrs_pending_flush:
-            # not yet time for this lot
             return
 
         # Send at most limit EDUs for receipts.
@@ -719,25 +713,29 @@ class _TransactionQueueManager:
 
         # Add presence EDU.
         if self.queue._pending_presence:
+            # Only send max 50 presence entries in the EDU, to bound the amount
+            # of data we're sending.
+            presence_to_add: List[JsonDict] = []
+            while (
+                self.queue._pending_presence
+                and len(presence_to_add) < MAX_PRESENCE_STATES_PER_EDU
+            ):
+                _, presence = self.queue._pending_presence.popitem(last=False)
+                presence_to_add.append(
+                    format_user_presence_state(presence, self.queue._clock.time_msec())
+                )
+
             pending_edus.append(
                 Edu(
                     origin=self.queue._server_name,
                     destination=self.queue._destination,
                     edu_type=EduTypes.PRESENCE,
-                    content={
-                        "push": [
-                            format_user_presence_state(
-                                presence, self.queue._clock.time_msec()
-                            )
-                            for presence in self.queue._pending_presence.values()
-                        ]
-                    },
+                    content={"push": presence_to_add},
                 )
             )
-            self.queue._pending_presence = {}
 
         # Add read receipt EDUs.
-        pending_edus.extend(self.queue._get_receipt_edus(force_flush=False, limit=5))
+        pending_edus.extend(self.queue._get_receipt_edus(limit=5))
         edu_limit = MAX_EDUS_PER_TRANSACTION - len(pending_edus)
 
         # Next, prioritize to-device messages so that existing encryption channels
@@ -784,13 +782,6 @@ class _TransactionQueueManager:
 
         if not self._pdus and not pending_edus:
             return [], []
-
-        # if we've decided to send a transaction anyway, and we have room, we
-        # may as well send any pending RRs
-        if edu_limit:
-            pending_edus.extend(
-                self.queue._get_receipt_edus(force_flush=True, limit=edu_limit)
-            )
 
         if self._pdus:
             self._last_stream_ordering = self._pdus[

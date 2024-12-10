@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 The Matrix.org Foundation C.I.C.
+# Copyright 2014 - 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -21,7 +23,20 @@
 import collections.abc
 import logging
 import typing
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Set, Tuple, Union
+from typing import (
+    Any,
+    ChainMap,
+    Dict,
+    Iterable,
+    List,
+    Mapping,
+    MutableMapping,
+    Optional,
+    Set,
+    Tuple,
+    Union,
+    cast,
+)
 
 from canonicaljson import encode_canonical_json
 from signedjson.key import decode_verify_key_bytes
@@ -73,8 +88,7 @@ class _EventSourceStore(Protocol):
         redact_behaviour: EventRedactBehaviour,
         get_prev_content: bool = False,
         allow_rejected: bool = False,
-    ) -> Dict[str, "EventBase"]:
-        ...
+    ) -> Dict[str, "EventBase"]: ...
 
 
 def validate_event_for_room_version(event: "EventBase") -> None:
@@ -173,12 +187,22 @@ async def check_state_independent_auth_rules(
         return
 
     # 2. Reject if event has auth_events that: ...
+    auth_events: ChainMap[str, EventBase] = ChainMap()
     if batched_auth_events:
-        # Copy the batched auth events to avoid mutating them.
-        auth_events = dict(batched_auth_events)
-        needed_auth_event_ids = set(event.auth_event_ids()) - batched_auth_events.keys()
+        # batched_auth_events can become very large. To avoid repeatedly copying it, which
+        # would significantly impact performance, we use a ChainMap.
+        # batched_auth_events must be cast to MutableMapping because .new_child() requires
+        # this type. This casting is safe as the mapping is never mutated.
+        auth_events = auth_events.new_child(
+            cast(MutableMapping[str, "EventBase"], batched_auth_events)
+        )
+        needed_auth_event_ids = [
+            event_id
+            for event_id in event.auth_event_ids()
+            if event_id not in batched_auth_events
+        ]
         if needed_auth_event_ids:
-            auth_events.update(
+            auth_events = auth_events.new_child(
                 await store.get_events(
                     needed_auth_event_ids,
                     redact_behaviour=EventRedactBehaviour.as_is,
@@ -186,10 +210,12 @@ async def check_state_independent_auth_rules(
                 )
             )
     else:
-        auth_events = await store.get_events(
-            event.auth_event_ids(),
-            redact_behaviour=EventRedactBehaviour.as_is,
-            allow_rejected=True,
+        auth_events = auth_events.new_child(
+            await store.get_events(
+                event.auth_event_ids(),
+                redact_behaviour=EventRedactBehaviour.as_is,
+                allow_rejected=True,
+            )
         )
 
     room_id = event.room_id
@@ -362,6 +388,7 @@ LENIENT_EVENT_BYTE_LIMITS_ROOM_VERSIONS = {
     RoomVersions.V9,
     RoomVersions.V10,
     RoomVersions.MSC1767v10,
+    RoomVersions.MSC3757v10,
 }
 
 
@@ -764,9 +791,10 @@ def get_send_level(
 
 
 def _can_send_event(event: "EventBase", auth_events: StateMap["EventBase"]) -> bool:
+    state_key = event.get_state_key()
     power_levels_event = get_power_level_event(auth_events)
 
-    send_level = get_send_level(event.type, event.get("state_key"), power_levels_event)
+    send_level = get_send_level(event.type, state_key, power_levels_event)
     user_level = get_user_power_level(event.user_id, auth_events)
 
     if user_level < send_level:
@@ -777,11 +805,34 @@ def _can_send_event(event: "EventBase", auth_events: StateMap["EventBase"]) -> b
             errcode=Codes.INSUFFICIENT_POWER,
         )
 
-    # Check state_key
-    if hasattr(event, "state_key"):
-        if event.state_key.startswith("@"):
-            if event.state_key != event.user_id:
-                raise AuthError(403, "You are not allowed to set others state")
+    if (
+        state_key is not None
+        and state_key.startswith("@")
+        and state_key != event.user_id
+    ):
+        if event.room_version.msc3757_enabled:
+            try:
+                colon_idx = state_key.index(":", 1)
+                suffix_idx = state_key.find("_", colon_idx + 1)
+                state_key_user_id = (
+                    state_key[:suffix_idx] if suffix_idx != -1 else state_key
+                )
+                if not UserID.is_valid(state_key_user_id):
+                    raise ValueError
+            except ValueError:
+                raise SynapseError(
+                    400,
+                    "State key neither equals a valid user ID, nor starts with one plus an underscore",
+                    errcode=Codes.BAD_JSON,
+                )
+            if (
+                # sender is owner of the state key
+                state_key_user_id == event.user_id
+                # sender has higher PL than the owner of the state key
+                or user_level > get_user_power_level(state_key_user_id, auth_events)
+            ):
+                return True
+        raise AuthError(403, "You are not allowed to set others state")
 
     return True
 
@@ -861,7 +912,8 @@ def _check_power_levels(
                     raise SynapseError(400, f"{v!r} must be an integer.")
             if k in {"events", "notifications", "users"}:
                 if not isinstance(v, collections.abc.Mapping) or not all(
-                    type(v) is int for v in v.values()  # noqa: E721
+                    type(v) is int
+                    for v in v.values()  # noqa: E721
                 ):
                     raise SynapseError(
                         400,

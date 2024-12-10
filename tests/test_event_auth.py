@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2018-2022 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -291,12 +292,14 @@ class EventAuthTestCase(unittest.TestCase):
         ]
 
         # pleb should not be able to send state
-        self.assertRaises(
-            AuthError,
-            event_auth.check_state_dependent_auth_rules,
-            _random_state_event(RoomVersions.V1, pleb),
-            auth_events,
-        ),
+        (
+            self.assertRaises(
+                AuthError,
+                event_auth.check_state_dependent_auth_rules,
+                _random_state_event(RoomVersions.V1, pleb),
+                auth_events,
+            ),
+        )
 
         # king should be able to send state
         event_auth.check_state_dependent_auth_rules(

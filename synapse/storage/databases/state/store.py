@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -119,11 +120,11 @@ class StateGroupDataStore(StateBackgroundUpdateStore, SQLBaseStore):
             # TODO: this hasn't been tuned yet
             50000,
         )
-        self._state_group_members_cache: DictionaryCache[
-            int, StateKey, str
-        ] = DictionaryCache(
-            "*stateGroupMembersCache*",
-            500000,
+        self._state_group_members_cache: DictionaryCache[int, StateKey, str] = (
+            DictionaryCache(
+                "*stateGroupMembersCache*",
+                500000,
+            )
         )
 
         def get_max_state_group_txn(txn: Cursor) -> int:
@@ -283,7 +284,8 @@ class StateGroupDataStore(StateBackgroundUpdateStore, SQLBaseStore):
         Returns:
             Dict of state group to state map.
         """
-        state_filter = state_filter or StateFilter.all()
+        if state_filter is None:
+            state_filter = StateFilter.all()
 
         member_filter, non_member_filter = state_filter.get_member_split()
 
@@ -766,7 +768,7 @@ class StateGroupDataStore(StateBackgroundUpdateStore, SQLBaseStore):
 
         remaining_state_groups = {
             state_group
-            for state_group, in rows
+            for (state_group,) in rows
             if state_group not in state_groups_to_delete
         }
 
@@ -803,11 +805,11 @@ class StateGroupDataStore(StateBackgroundUpdateStore, SQLBaseStore):
         logger.info("[purge] removing redundant state groups")
         txn.execute_batch(
             "DELETE FROM state_groups_state WHERE state_group = ?",
-            ((sg,) for sg in state_groups_to_delete),
+            [(sg,) for sg in state_groups_to_delete],
         )
         txn.execute_batch(
             "DELETE FROM state_groups WHERE id = ?",
-            ((sg,) for sg in state_groups_to_delete),
+            [(sg,) for sg in state_groups_to_delete],
         )
 
     @trace

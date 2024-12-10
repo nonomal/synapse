@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -114,7 +115,7 @@ class StreamChangeCache:
         """
         new_size = math.floor(self._original_max_size * factor)
         if new_size != self._max_size:
-            self.max_size = new_size
+            self._max_size = new_size
             self._evict()
             return True
         return False
@@ -141,9 +142,9 @@ class StreamChangeCache:
         """
         assert isinstance(stream_pos, int)
 
-        # _cache is not valid at or before the earliest known stream position, so
+        # _cache is not valid before the earliest known stream position, so
         # return that the entity has changed.
-        if stream_pos <= self._earliest_known_stream_pos:
+        if stream_pos < self._earliest_known_stream_pos:
             self.metrics.inc_misses()
             return True
 
@@ -164,7 +165,7 @@ class StreamChangeCache:
         return False
 
     def get_entities_changed(
-        self, entities: Collection[EntityType], stream_pos: int
+        self, entities: Collection[EntityType], stream_pos: int, _perf_factor: int = 1
     ) -> Union[Set[EntityType], FrozenSet[EntityType]]:
         """
         Returns the subset of the given entities that have had changes after the given position.
@@ -176,6 +177,8 @@ class StreamChangeCache:
         Args:
             entities: Entities to check for changes.
             stream_pos: The stream position to check for changes after.
+            _perf_factor: Used by unit tests to choose when to use each
+                optimisation.
 
         Return:
             A subset of entities which have changed after the given stream position.
@@ -183,6 +186,22 @@ class StreamChangeCache:
             This will be all entities if the given stream position is at or earlier
             than the earliest known stream position.
         """
+        if not self._cache or stream_pos < self._earliest_known_stream_pos:
+            self.metrics.inc_misses()
+            return set(entities)
+
+        # If there have been tonnes of changes compared with the number of
+        # entities, it is faster to check each entities stream ordering
+        # one-by-one.
+        max_stream_pos, _ = self._cache.peekitem()
+        if max_stream_pos - stream_pos > _perf_factor * len(entities):
+            self.metrics.inc_hits()
+            return {
+                entity
+                for entity in entities
+                if self._entity_to_key.get(entity, -1) > stream_pos
+            }
+
         cache_result = self.get_all_entities_changed(stream_pos)
         if cache_result.hit:
             # We now do an intersection, trying to do so in the most efficient
@@ -219,9 +238,9 @@ class StreamChangeCache:
         """
         assert isinstance(stream_pos, int)
 
-        # _cache is not valid at or before the earliest known stream position, so
+        # _cache is not valid before the earliest known stream position, so
         # return that an entity has changed.
-        if stream_pos <= self._earliest_known_stream_pos:
+        if stream_pos < self._earliest_known_stream_pos:
             self.metrics.inc_misses()
             return True
 
@@ -251,9 +270,9 @@ class StreamChangeCache:
         """
         assert isinstance(stream_pos, int)
 
-        # _cache is not valid at or before the earliest known stream position, so
+        # _cache is not valid before the earliest known stream position, so
         # return None to mark that it is unknown if an entity has changed.
-        if stream_pos <= self._earliest_known_stream_pos:
+        if stream_pos < self._earliest_known_stream_pos:
             return AllEntitiesChangedResult(None)
 
         changed_entities: List[EntityType] = []
@@ -308,7 +327,7 @@ class StreamChangeCache:
             for entity in r:
                 self._entity_to_key.pop(entity, None)
 
-    def get_max_pos_of_last_change(self, entity: EntityType) -> int:
+    def get_max_pos_of_last_change(self, entity: EntityType) -> Optional[int]:
         """Returns an upper bound of the stream id of the last change to an
         entity.
 
@@ -316,7 +335,11 @@ class StreamChangeCache:
             entity: The entity to check.
 
         Return:
-            The stream position of the latest change for the given entity or
-            the earliest known stream position if the entitiy is unknown.
+            The stream position of the latest change for the given entity, if
+            known
         """
-        return self._entity_to_key.get(entity, self._earliest_known_stream_pos)
+        return self._entity_to_key.get(entity)
+
+    def get_earliest_known_position(self) -> int:
+        """Returns the earliest position in the cache."""
+        return self._earliest_known_stream_pos

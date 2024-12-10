@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2023 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -135,12 +136,12 @@ class TaskSchedulerWorkerStore(SQLBaseStore):
                 "status": task.status,
                 "timestamp": task.timestamp,
                 "resource_id": task.resource_id,
-                "params": None
-                if task.params is None
-                else json_encoder.encode(task.params),
-                "result": None
-                if task.result is None
-                else json_encoder.encode(task.result),
+                "params": (
+                    None if task.params is None else json_encoder.encode(task.params)
+                ),
+                "result": (
+                    None if task.result is None else json_encoder.encode(task.result)
+                ),
                 "error": task.error,
             },
             desc="insert_scheduled_task",

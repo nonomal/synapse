@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2023 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -43,13 +44,13 @@ class MediaDomainBlockingTests(unittest.HomeserverTestCase):
         # from a regular 404.
         file_id = "abcdefg12345"
         file_info = FileInfo(server_name=self.remote_server_name, file_id=file_id)
-        with hs.get_media_repository().media_storage.store_into_file(file_info) as (
-            f,
-            fname,
-            finish,
-        ):
-            f.write(SMALL_PNG)
-            self.get_success(finish())
+
+        media_storage = hs.get_media_repository().media_storage
+
+        ctx = media_storage.store_into_file(file_info)
+        (f, fname) = self.get_success(ctx.__aenter__())
+        f.write(SMALL_PNG)
+        self.get_success(ctx.__aexit__(None, None, None))
 
         self.get_success(
             self.store.store_cached_remote_media(
@@ -90,7 +91,8 @@ class MediaDomainBlockingTests(unittest.HomeserverTestCase):
         {
             # Disable downloads from a domain we won't be requesting downloads from.
             # This proves we haven't broken anything.
-            "prevent_media_downloads_from": ["not-listed.com"]
+            "prevent_media_downloads_from": ["not-listed.com"],
+            "enable_authenticated_media": False,
         }
     )
     def test_remote_media_normally_unblocked(self) -> None:
@@ -131,6 +133,7 @@ class MediaDomainBlockingTests(unittest.HomeserverTestCase):
             # This proves we haven't broken anything.
             "prevent_media_downloads_from": ["not-listed.com"],
             "dynamic_thumbnails": True,
+            "enable_authenticated_media": False,
         }
     )
     def test_remote_media_thumbnail_normally_unblocked(self) -> None:

@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,7 +23,7 @@ from http import HTTPStatus
 from typing import TYPE_CHECKING, Tuple
 
 from synapse.api.constants import Direction
-from synapse.api.errors import Codes, NotFoundError, SynapseError
+from synapse.api.errors import NotFoundError, SynapseError
 from synapse.federation.transport.server import Authenticator
 from synapse.http.servlet import RestServlet, parse_enum, parse_integer, parse_string
 from synapse.http.site import SynapseRequest
@@ -62,20 +63,6 @@ class ListDestinationsRestServlet(RestServlet):
 
         start = parse_integer(request, "from", default=0)
         limit = parse_integer(request, "limit", default=100)
-
-        if start < 0:
-            raise SynapseError(
-                HTTPStatus.BAD_REQUEST,
-                "Query parameter from must be a string representing a positive integer.",
-                errcode=Codes.INVALID_PARAM,
-            )
-
-        if limit < 0:
-            raise SynapseError(
-                HTTPStatus.BAD_REQUEST,
-                "Query parameter limit must be a string representing a positive integer.",
-                errcode=Codes.INVALID_PARAM,
-            )
 
         destination = parse_string(request, "destination")
 
@@ -196,20 +183,6 @@ class DestinationMembershipRestServlet(RestServlet):
 
         start = parse_integer(request, "from", default=0)
         limit = parse_integer(request, "limit", default=100)
-
-        if start < 0:
-            raise SynapseError(
-                HTTPStatus.BAD_REQUEST,
-                "Query parameter from must be a string representing a positive integer.",
-                errcode=Codes.INVALID_PARAM,
-            )
-
-        if limit < 0:
-            raise SynapseError(
-                HTTPStatus.BAD_REQUEST,
-                "Query parameter limit must be a string representing a positive integer.",
-                errcode=Codes.INVALID_PARAM,
-            )
 
         direction = parse_enum(request, "dir", Direction, default=Direction.FORWARDS)
 

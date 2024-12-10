@@ -68,7 +68,7 @@ Of their installation methods, we recommend
 
 ```shell
 pip install --user pipx
-pipx install poetry==1.5.1  # Problems with Poetry 1.6, see https://github.com/matrix-org/synapse/issues/16147
+pipx install poetry
 ```
 
 but see poetry's [installation instructions](https://python-poetry.org/docs/#installation)
@@ -85,6 +85,8 @@ poetry install --extras all
 
 This will install the runtime and developer dependencies for the project.  Be sure to check
 that the `poetry install` step completed cleanly.
+
+For OSX users, be sure to set `PKG_CONFIG_PATH` to support `icu4c`. Run `brew info icu4c` for more details.
 
 ## Running Synapse via poetry
 
@@ -320,7 +322,7 @@ The following command will let you run the integration test with the most common
 configuration:
 
 ```sh
-$ docker run --rm -it -v /path/where/you/have/cloned/the/repository\:/src:ro -v /path/to/where/you/want/logs\:/logs matrixdotorg/sytest-synapse:focal
+$ docker run --rm -it -v /path/where/you/have/cloned/the/repository\:/src:ro -v /path/to/where/you/want/logs\:/logs matrixdotorg/sytest-synapse:bullseye
 ```
 (Note that the paths must be full paths! You could also write `$(realpath relative/path)` if needed.)
 
@@ -329,7 +331,7 @@ This configuration should generally cover your needs.
 - To run with Postgres, supply the `-e POSTGRES=1 -e MULTI_POSTGRES=1` environment flags.
 - To run with Synapse in worker mode, supply the `-e WORKERS=1 -e REDIS=1` environment flags (in addition to the Postgres flags).
 
-For more details about other configurations, see the [Docker-specific documentation in the SyTest repo](https://github.com/vector-im/sytest/blob/develop/docker/README.md).
+For more details about other configurations, see the [Docker-specific documentation in the SyTest repo](https://github.com/matrix-org/sytest/blob/develop/docker/README.md).
 
 
 ## Run the integration tests ([Complement](https://github.com/matrix-org/complement)).
@@ -447,9 +449,9 @@ For example, a fix in PR #1234 would have its changelog entry in
 > The security levels of Florbs are now validated when received
 > via the `/federation/florb` endpoint. Contributed by Jane Matrix.
 
-If there are multiple pull requests involved in a single bugfix/feature/etc,
-then the content for each `changelog.d` file should be the same. Towncrier will
-merge the matching files together into a single changelog entry when we come to
+If there are multiple pull requests involved in a single bugfix/feature/etc, then the
+content for each `changelog.d` file and file extension should be the same. Towncrier
+will merge the matching files together into a single changelog entry when we come to
 release.
 
 ### How do I know what to call the changelog file before I create the PR?

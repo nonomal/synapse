@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -69,6 +71,7 @@ user state; this device follows the normal timeout logic (see above) and will
 automatically be replaced with any information from currently available devices.
 
 """
+
 import abc
 import contextlib
 import itertools

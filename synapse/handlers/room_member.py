@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 Sorunome
+# Copyright 2016-2020 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -49,6 +51,7 @@ from synapse.handlers.worker_lock import NEW_EVENT_DURING_PURGE_LOCK_NAME
 from synapse.logging import opentracing
 from synapse.metrics import event_processing_positions
 from synapse.metrics.background_process_metrics import run_as_background_process
+from synapse.replication.http.push import ReplicationCopyPusherRestServlet
 from synapse.storage.databases.main.state_deltas import StateDelta
 from synapse.types import (
     JsonDict,
@@ -102,6 +105,13 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
         self.account_data_handler = hs.get_account_data_handler()
         self.event_auth_handler = hs.get_event_auth_handler()
         self._worker_lock_handler = hs.get_worker_locks_handler()
+
+        self._membership_types_to_include_profile_data_in = {
+            Membership.JOIN,
+            Membership.KNOCK,
+        }
+        if self.hs.config.server.include_profile_data_on_invite:
+            self._membership_types_to_include_profile_data_in.add(Membership.INVITE)
 
         self.member_linearizer: Linearizer = Linearizer(name="member")
         self.member_as_limiter = Linearizer(max_count=10, name="member_as_limiter")
@@ -178,6 +188,12 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
         self._forgotten_room_retention_period = (
             hs.config.server.forgotten_room_retention_period
         )
+
+        self._is_push_writer = (
+            hs.get_instance_name() in hs.config.worker.writers.push_rules
+        )
+        self._push_writer = hs.config.worker.writers.push_rules[0]
+        self._copy_push_client = ReplicationCopyPusherRestServlet.make_client(hs)
 
     def _on_user_joined_room(self, event_id: str, room_id: str) -> None:
         """Notify the rate limiter that a room join has occurred.
@@ -743,12 +759,41 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
             and requester.user.to_string() == self._server_notices_mxid
         )
 
+        requester_suspended = await self.store.get_user_suspended_status(
+            requester.user.to_string()
+        )
+        if action == Membership.INVITE and requester_suspended:
+            raise SynapseError(
+                403,
+                "Sending invites while account is suspended is not allowed.",
+                Codes.USER_ACCOUNT_SUSPENDED,
+            )
+
+        if target.to_string() != requester.user.to_string():
+            target_suspended = await self.store.get_user_suspended_status(
+                target.to_string()
+            )
+        else:
+            target_suspended = requester_suspended
+
+        if action == Membership.JOIN and target_suspended:
+            raise SynapseError(
+                403,
+                "Joining rooms while account is suspended is not allowed.",
+                Codes.USER_ACCOUNT_SUSPENDED,
+            )
+        if action == Membership.KNOCK and target_suspended:
+            raise SynapseError(
+                403,
+                "Knocking on rooms while account is suspended is not allowed.",
+                Codes.USER_ACCOUNT_SUSPENDED,
+            )
+
         if (
             not self.allow_per_room_profiles and not is_requester_server_notices_user
         ) or requester.shadow_banned:
-            # Strip profile data, knowing that new profile data will be added to the
-            # event's content in event_creation_handler.create_event() using the target's
-            # global profile.
+            # Strip profile data, knowing that new profile data will be added to
+            # the event's content below using the target's global profile.
             content.pop("displayname", None)
             content.pop("avatar_url", None)
 
@@ -783,6 +828,29 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
         effective_membership_state = action
         if action in ["kick", "unban"]:
             effective_membership_state = "leave"
+
+        if effective_membership_state not in Membership.LIST:
+            raise SynapseError(400, "Invalid membership key")
+
+        # Add profile data for joins etc, if no per-room profile.
+        if (
+            effective_membership_state
+            in self._membership_types_to_include_profile_data_in
+        ):
+            # If event doesn't include a display name, add one.
+            profile = self.profile_handler
+
+            try:
+                if "displayname" not in content:
+                    displayname = await profile.get_displayname(target)
+                    if displayname is not None:
+                        content["displayname"] = displayname
+                if "avatar_url" not in content:
+                    avatar_url = await profile.get_avatar_url(target)
+                    if avatar_url is not None:
+                        content["avatar_url"] = avatar_url
+            except Exception as e:
+                logger.info("Failed to get profile information for %r: %s", target, e)
 
         # if this is a join with a 3pid signature, we may need to turn a 3pid
         # invite into a normal invite before we can handle the join.
@@ -1122,6 +1190,26 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
             origin_server_ts=origin_server_ts,
         )
 
+    async def check_for_any_membership_in_room(
+        self, *, user_id: str, room_id: str
+    ) -> None:
+        """
+        Check if the user has any membership in the room and raise error if not.
+
+        Args:
+            user_id: The user to check.
+            room_id: The room to check.
+
+        Raises:
+            AuthError if the user doesn't have any membership in the room.
+        """
+        result = await self.store.get_local_current_membership_for_user_in_room(
+            user_id=user_id, room_id=room_id
+        )
+
+        if result is None or result == (None, None):
+            raise AuthError(403, f"User {user_id} has no membership in room {room_id}")
+
     async def _should_perform_remote_join(
         self,
         user_id: str,
@@ -1299,9 +1387,17 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
                     old_room_id, new_room_id, user_id
                 )
                 # Copy over push rules
-                await self.store.copy_push_rules_from_room_to_room_for_user(
-                    old_room_id, new_room_id, user_id
-                )
+                if self._is_push_writer:
+                    await self.store.copy_push_rules_from_room_to_room_for_user(
+                        old_room_id, new_room_id, user_id
+                    )
+                else:
+                    await self._copy_push_client(
+                        instance_name=self._push_writer,
+                        user_id=user_id,
+                        old_room_id=old_room_id,
+                        new_room_id=new_room_id,
+                    )
             except Exception:
                 logger.exception(
                     "Error copying tags and/or push rules from rooms %s to %s for user %s. "
@@ -1339,9 +1435,9 @@ class RoomMemberHandler(metaclass=abc.ABCMeta):
 
         if requester is not None:
             sender = UserID.from_string(event.sender)
-            assert (
-                sender == requester.user
-            ), "Sender (%s) must be same as requester (%s)" % (sender, requester.user)
+            assert sender == requester.user, (
+                "Sender (%s) must be same as requester (%s)" % (sender, requester.user)
+            )
             assert self.hs.is_mine(sender), "Sender must be our own: %s" % (sender,)
         else:
             requester = types.create_requester(target_user)

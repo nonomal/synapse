@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -38,7 +39,7 @@ from twisted.internet.endpoints import (
 )
 from twisted.internet.interfaces import (
     IPushProducer,
-    IReactorTCP,
+    IReactorTime,
     IStreamClientEndpoint,
 )
 from twisted.internet.protocol import Factory, Protocol
@@ -112,7 +113,7 @@ class RemoteHandler(logging.Handler):
         port: int,
         maximum_buffer: int = 1000,
         level: int = logging.NOTSET,
-        _reactor: Optional[IReactorTCP] = None,
+        _reactor: Optional[IReactorTime] = None,
     ):
         super().__init__(level=level)
         self.host = host

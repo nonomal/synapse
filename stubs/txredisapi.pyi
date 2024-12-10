@@ -1,4 +1,5 @@
 # Copyright 2020 The Matrix.org Foundation C.I.C.
+# Copyright 2020 The Matrix.org Foundation C.I.C.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -12,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-"""Contains *incomplete* type hints for txredisapi.
-"""
+"""Contains *incomplete* type hints for txredisapi."""
+
 from typing import Any, List, Optional, Type, Union
 
 from twisted.internet import protocol

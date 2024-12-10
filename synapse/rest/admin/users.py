@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,15 +23,17 @@ import hmac
 import logging
 import secrets
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
 import attr
 
+from synapse._pydantic_compat import StrictBool, StrictInt, StrictStr
 from synapse.api.constants import Direction, UserTypes
 from synapse.api.errors import Codes, NotFoundError, SynapseError
 from synapse.http.servlet import (
     RestServlet,
     assert_params_in_dict,
+    parse_and_validate_json_object_from_request,
     parse_boolean,
     parse_enum,
     parse_integer,
@@ -47,10 +50,12 @@ from synapse.rest.admin._base import (
 from synapse.rest.client._base import client_patterns
 from synapse.storage.databases.main.registration import ExternalIDReuseException
 from synapse.storage.databases.main.stats import UserSortOrder
-from synapse.types import JsonDict, JsonMapping, UserID
+from synapse.types import JsonDict, JsonMapping, TaskStatus, UserID
+from synapse.types.rest import RequestBodyModel
 
 if TYPE_CHECKING:
     from synapse.server import HomeServer
+
 
 logger = logging.getLogger(__name__)
 
@@ -92,20 +97,6 @@ class UsersRestServletV2(RestServlet):
         start = parse_integer(request, "from", default=0)
         limit = parse_integer(request, "limit", default=100)
 
-        if start < 0:
-            raise SynapseError(
-                HTTPStatus.BAD_REQUEST,
-                "Query parameter from must be a string representing a positive integer.",
-                errcode=Codes.INVALID_PARAM,
-            )
-
-        if limit < 0:
-            raise SynapseError(
-                HTTPStatus.BAD_REQUEST,
-                "Query parameter limit must be a string representing a positive integer.",
-                errcode=Codes.INVALID_PARAM,
-            )
-
         user_id = parse_string(request, "user_id")
         name = parse_string(request, "name", encoding="utf-8")
 
@@ -117,7 +108,8 @@ class UsersRestServletV2(RestServlet):
                 errcode=Codes.INVALID_PARAM,
             )
 
-        deactivated = parse_boolean(request, "deactivated", default=False)
+        deactivated = self._parse_parameter_deactivated(request)
+
         locked = parse_boolean(request, "locked", default=False)
         admins = parse_boolean(request, "admins")
 
@@ -180,6 +172,22 @@ class UsersRestServletV2(RestServlet):
             ret["next_token"] = str(start + len(users))
 
         return HTTPStatus.OK, ret
+
+    def _parse_parameter_deactivated(self, request: SynapseRequest) -> Optional[bool]:
+        """
+        Return None (no filtering) if `deactivated` is `true`, otherwise return `False`
+        (exclude deactivated users from the results).
+        """
+        return None if parse_boolean(request, "deactivated") else False
+
+
+class UsersRestServletV3(UsersRestServletV2):
+    PATTERNS = admin_patterns("/users$", "v3")
+
+    def _parse_parameter_deactivated(
+        self, request: SynapseRequest
+    ) -> Union[bool, None]:
+        return parse_boolean(request, "deactivated")
 
 
 class UserRestServletV2(RestServlet):
@@ -728,6 +736,36 @@ class DeactivateAccountRestServlet(RestServlet):
         return HTTPStatus.OK, {"id_server_unbind_result": id_server_unbind_result}
 
 
+class SuspendAccountRestServlet(RestServlet):
+    PATTERNS = admin_patterns("/suspend/(?P<target_user_id>[^/]*)$")
+
+    def __init__(self, hs: "HomeServer"):
+        self.auth = hs.get_auth()
+        self.is_mine = hs.is_mine
+        self.store = hs.get_datastores().main
+
+    class PutBody(RequestBodyModel):
+        suspend: StrictBool
+
+    async def on_PUT(
+        self, request: SynapseRequest, target_user_id: str
+    ) -> Tuple[int, JsonDict]:
+        requester = await self.auth.get_user_by_req(request)
+        await assert_user_is_admin(self.auth, requester)
+
+        if not self.is_mine(UserID.from_string(target_user_id)):
+            raise SynapseError(HTTPStatus.BAD_REQUEST, "Can only suspend local users")
+
+        if not await self.store.get_user_by_id(target_user_id):
+            raise NotFoundError("User not found")
+
+        body = parse_and_validate_json_object_from_request(request, self.PutBody)
+        suspend = body.suspend
+        await self.store.set_user_suspended_status(target_user_id, suspend)
+
+        return HTTPStatus.OK, {f"user_{target_user_id}_suspended": suspend}
+
+
 class AccountValidityRenewServlet(RestServlet):
     PATTERNS = admin_patterns("/account_validity/validity$")
 
@@ -1166,12 +1204,14 @@ class RateLimitRestServlet(RestServlet):
             # convert `null` to `0` for consistency
             # both values do the same in retelimit handler
             ret = {
-                "messages_per_second": 0
-                if ratelimit.messages_per_second is None
-                else ratelimit.messages_per_second,
-                "burst_count": 0
-                if ratelimit.burst_count is None
-                else ratelimit.burst_count,
+                "messages_per_second": (
+                    0
+                    if ratelimit.messages_per_second is None
+                    else ratelimit.messages_per_second
+                ),
+                "burst_count": (
+                    0 if ratelimit.burst_count is None else ratelimit.burst_count
+                ),
             }
         else:
             ret = {}
@@ -1365,3 +1405,99 @@ class UserByThreePid(RestServlet):
             raise NotFoundError("User not found")
 
         return HTTPStatus.OK, {"user_id": user_id}
+
+
+class RedactUser(RestServlet):
+    """
+    Redact all the events of a given user in the given rooms or if empty dict is provided
+    then all events in all rooms user is member of. Kicks off a background process and
+    returns an id that can be used to check on the progress of the redaction progress
+    """
+
+    PATTERNS = admin_patterns("/user/(?P<user_id>[^/]*)/redact")
+
+    def __init__(self, hs: "HomeServer"):
+        self._auth = hs.get_auth()
+        self._store = hs.get_datastores().main
+        self.admin_handler = hs.get_admin_handler()
+
+    class PostBody(RequestBodyModel):
+        rooms: List[StrictStr]
+        reason: Optional[StrictStr]
+        limit: Optional[StrictInt]
+
+    async def on_POST(
+        self, request: SynapseRequest, user_id: str
+    ) -> Tuple[int, JsonDict]:
+        requester = await self._auth.get_user_by_req(request)
+        await assert_user_is_admin(self._auth, requester)
+
+        # parse provided user id to check that it is valid
+        UserID.from_string(user_id)
+
+        body = parse_and_validate_json_object_from_request(request, self.PostBody)
+
+        limit = body.limit
+        if limit and limit <= 0:
+            raise SynapseError(
+                HTTPStatus.BAD_REQUEST,
+                "If limit is provided it must be a non-negative integer greater than 0.",
+            )
+
+        rooms = body.rooms
+        if not rooms:
+            current_rooms = list(await self._store.get_rooms_for_user(user_id))
+            banned_rooms = list(
+                await self._store.get_rooms_user_currently_banned_from(user_id)
+            )
+            rooms = current_rooms + banned_rooms
+
+        redact_id = await self.admin_handler.start_redact_events(
+            user_id, rooms, requester.serialize(), body.reason, limit
+        )
+
+        return HTTPStatus.OK, {"redact_id": redact_id}
+
+
+class RedactUserStatus(RestServlet):
+    """
+    Check on the progress of the redaction request represented by the provided ID, returning
+    the status of the process and a dict of events that were unable to be redacted, if any
+    """
+
+    PATTERNS = admin_patterns("/user/redact_status/(?P<redact_id>[^/]*)$")
+
+    def __init__(self, hs: "HomeServer"):
+        self._auth = hs.get_auth()
+        self.admin_handler = hs.get_admin_handler()
+
+    async def on_GET(
+        self, request: SynapseRequest, redact_id: str
+    ) -> Tuple[int, JsonDict]:
+        await assert_requester_is_admin(self._auth, request)
+
+        task = await self.admin_handler.get_redact_task(redact_id)
+
+        if task:
+            if task.status == TaskStatus.ACTIVE:
+                return HTTPStatus.OK, {"status": TaskStatus.ACTIVE}
+            elif task.status == TaskStatus.COMPLETE:
+                assert task.result is not None
+                failed_redactions = task.result.get("failed_redactions")
+                return HTTPStatus.OK, {
+                    "status": TaskStatus.COMPLETE,
+                    "failed_redactions": failed_redactions if failed_redactions else {},
+                }
+            elif task.status == TaskStatus.SCHEDULED:
+                return HTTPStatus.OK, {"status": TaskStatus.SCHEDULED}
+            else:
+                return HTTPStatus.OK, {
+                    "status": TaskStatus.FAILED,
+                    "error": (
+                        task.error
+                        if task.error
+                        else "Unknown error, please check the logs for more information."
+                    ),
+                }
+        else:
+            raise NotFoundError("redact id '%s' not found" % redact_id)

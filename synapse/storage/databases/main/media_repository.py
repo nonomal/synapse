@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020-2021 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -62,6 +64,7 @@ class LocalMedia:
     quarantined_by: Optional[str]
     safe_from_quarantine: bool
     user_id: Optional[str]
+    authenticated: Optional[bool]
 
 
 @attr.s(slots=True, frozen=True, auto_attribs=True)
@@ -75,6 +78,7 @@ class RemoteMedia:
     created_ts: int
     last_access_ts: int
     quarantined_by: Optional[str]
+    authenticated: Optional[bool]
 
 
 @attr.s(slots=True, frozen=True, auto_attribs=True)
@@ -156,9 +160,9 @@ class MediaRepositoryBackgroundUpdateStore(SQLBaseStore):
         )
 
         if hs.config.media.can_load_media_repo:
-            self.unused_expiration_time: Optional[
-                int
-            ] = hs.config.media.unused_expiration_time
+            self.unused_expiration_time: Optional[int] = (
+                hs.config.media.unused_expiration_time
+            )
         else:
             self.unused_expiration_time = None
 
@@ -216,6 +220,7 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
                 "last_access_ts",
                 "safe_from_quarantine",
                 "user_id",
+                "authenticated",
             ),
             allow_none=True,
             desc="get_local_media",
@@ -233,6 +238,7 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
             last_access_ts=row[6],
             safe_from_quarantine=row[7],
             user_id=row[8],
+            authenticated=row[9],
         )
 
     async def get_local_media_by_user_paginate(
@@ -288,7 +294,8 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
                     last_access_ts,
                     quarantined_by,
                     safe_from_quarantine,
-                    user_id
+                    user_id,
+                    authenticated
                 FROM local_media_repository
                 WHERE user_id = ?
                 ORDER BY {order_by_column} {order}, media_id ASC
@@ -312,6 +319,7 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
                     quarantined_by=row[7],
                     safe_from_quarantine=bool(row[8]),
                     user_id=row[9],
+                    authenticated=row[10],
                 )
                 for row in txn
             ]
@@ -415,12 +423,18 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
         time_now_ms: int,
         user_id: UserID,
     ) -> None:
+        if self.hs.config.media.enable_authenticated_media:
+            authenticated = True
+        else:
+            authenticated = False
+
         await self.db_pool.simple_insert(
             "local_media_repository",
             {
                 "media_id": media_id,
                 "created_ts": time_now_ms,
                 "user_id": user_id.to_string(),
+                "authenticated": authenticated,
             },
             desc="store_local_media_id",
         )
@@ -436,6 +450,11 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
         user_id: UserID,
         url_cache: Optional[str] = None,
     ) -> None:
+        if self.hs.config.media.enable_authenticated_media:
+            authenticated = True
+        else:
+            authenticated = False
+
         await self.db_pool.simple_insert(
             "local_media_repository",
             {
@@ -446,6 +465,7 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
                 "media_length": media_length,
                 "user_id": user_id.to_string(),
                 "url_cache": url_cache,
+                "authenticated": authenticated,
             },
             desc="store_local_media",
         )
@@ -636,6 +656,7 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
                 "filesystem_id",
                 "last_access_ts",
                 "quarantined_by",
+                "authenticated",
             ),
             allow_none=True,
             desc="get_cached_remote_media",
@@ -652,6 +673,7 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
             filesystem_id=row[4],
             last_access_ts=row[5],
             quarantined_by=row[6],
+            authenticated=row[7],
         )
 
     async def store_cached_remote_media(
@@ -664,6 +686,11 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
         upload_name: Optional[str],
         filesystem_id: str,
     ) -> None:
+        if self.hs.config.media.enable_authenticated_media:
+            authenticated = True
+        else:
+            authenticated = False
+
         await self.db_pool.simple_insert(
             "remote_media_cache",
             {
@@ -675,6 +702,7 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
                 "upload_name": upload_name,
                 "filesystem_id": filesystem_id,
                 "last_access_ts": time_now_ms,
+                "authenticated": authenticated,
             },
             desc="store_cached_remote_media",
         )
@@ -701,10 +729,10 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
 
             txn.execute_batch(
                 sql,
-                (
+                [
                     (time_ms, media_origin, media_id)
                     for media_origin, media_id in remote_media
-                ),
+                ],
             )
 
             sql = (
@@ -712,7 +740,7 @@ class MediaRepositoryStore(MediaRepositoryBackgroundUpdateStore):
                 " WHERE media_id = ?"
             )
 
-            txn.execute_batch(sql, ((time_ms, media_id) for media_id in local_media))
+            txn.execute_batch(sql, [(time_ms, media_id) for media_id in local_media])
 
         await self.db_pool.runInteraction(
             "update_cached_last_access_time", update_cache_txn

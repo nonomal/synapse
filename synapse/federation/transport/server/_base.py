@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+#  Copyright 2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -112,7 +113,7 @@ class Authenticator:
                 ):
                     raise AuthenticationError(
                         HTTPStatus.UNAUTHORIZED,
-                        "Destination mismatch in auth header",
+                        f"Destination mismatch in auth header, received: {destination!r}",
                         Codes.UNAUTHORIZED,
                     )
         if (
@@ -179,7 +180,11 @@ def _parse_auth_header(header_bytes: bytes) -> Tuple[str, str, str, Optional[str
     """
     try:
         header_str = header_bytes.decode("utf-8")
-        params = re.split(" +", header_str)[1].split(",")
+        space_or_tab = "[ \t]"
+        params = re.split(
+            rf"{space_or_tab}*,{space_or_tab}*",
+            re.split(r"^X-Matrix +", header_str, maxsplit=1)[1],
+        )
         param_dict: Dict[str, str] = {
             k.lower(): v for k, v in [param.split("=", maxsplit=1) for param in params]
         }
@@ -355,13 +360,33 @@ class BaseFederationServlet:
                                     "request"
                                 )
                                 return None
+                            if (
+                                func.__self__.__class__.__name__  # type: ignore
+                                == "FederationMediaDownloadServlet"
+                                or func.__self__.__class__.__name__  # type: ignore
+                                == "FederationMediaThumbnailServlet"
+                            ):
+                                response = await func(
+                                    origin, content, request, *args, **kwargs
+                                )
+                            else:
+                                response = await func(
+                                    origin, content, request.args, *args, **kwargs
+                                )
+                    else:
+                        if (
+                            func.__self__.__class__.__name__  # type: ignore
+                            == "FederationMediaDownloadServlet"
+                            or func.__self__.__class__.__name__  # type: ignore
+                            == "FederationMediaThumbnailServlet"
+                        ):
+                            response = await func(
+                                origin, content, request, *args, **kwargs
+                            )
+                        else:
                             response = await func(
                                 origin, content, request.args, *args, **kwargs
                             )
-                    else:
-                        response = await func(
-                            origin, content, request.args, *args, **kwargs
-                        )
             finally:
                 # if we used the origin's context as the parent, add a new span using
                 # the servlet span as a parent, so that we have a link

@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020-2021 The Matrix.org Foundation C.I.C.
+# Copyright 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -70,9 +72,6 @@ class PreviewUrlResource(RestServlet):
         # XXX: if get_user_by_req fails, what should we do in an async render?
         requester = await self.auth.get_user_by_req(request)
         url = parse_string(request, "url", required=True)
-        ts = parse_integer(request, "ts")
-        if ts is None:
-            ts = self.clock.time_msec()
-
+        ts = parse_integer(request, "ts", default=self.clock.time_msec())
         og = await self.url_previewer.preview(url, requester.user, ts)
         respond_with_json_bytes(request, 200, og, send_cors=True)

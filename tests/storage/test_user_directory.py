@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2018-2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -709,6 +710,10 @@ class UserDirectoryICUTestCase(HomeserverTestCase):
                 ["lazy'fox", "jumped", "over", "the.dog"],
             ),
         )
+
+        self.assertEqual(_parse_words_with_icu("user-1"), ["user-1"])
+        self.assertEqual(_parse_words_with_icu("user-ab"), ["user-ab"])
+        self.assertEqual(_parse_words_with_icu("user.--1"), ["user", "-1"])
 
     def test_regex_word_boundary_punctuation(self) -> None:
         """

@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,9 +23,11 @@ from typing import TYPE_CHECKING, Mapping
 
 from twisted.web.resource import Resource
 
+from synapse.rest.synapse.client.federation_whitelist import FederationWhitelistResource
 from synapse.rest.synapse.client.new_user_consent import NewUserConsentResource
 from synapse.rest.synapse.client.pick_idp import PickIdpResource
 from synapse.rest.synapse.client.pick_username import pick_username_resource
+from synapse.rest.synapse.client.rendezvous import MSC4108RendezvousSessionResource
 from synapse.rest.synapse.client.sso_register import SsoRegisterResource
 from synapse.rest.synapse.client.unsubscribe import UnsubscribeResource
 
@@ -74,6 +77,12 @@ def build_synapse_client_resource_tree(hs: "HomeServer") -> Mapping[str, Resourc
         # This is also mounted under '/_matrix' for backwards-compatibility.
         # To be removed in Synapse v1.32.0.
         resources["/_matrix/saml2"] = res
+
+    if hs.config.federation.federation_whitelist_endpoint_enabled:
+        resources[FederationWhitelistResource.PATH] = FederationWhitelistResource(hs)
+
+    if hs.config.experimental.msc4108_enabled:
+        resources["/_synapse/client/rendezvous"] = MSC4108RendezvousSessionResource(hs)
 
     return resources
 

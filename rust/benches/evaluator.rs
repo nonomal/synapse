@@ -1,6 +1,7 @@
 /*
  * This file is licensed under the Affero General Public License (AGPL) version 3.
  *
+ * Copyright 2022 The Matrix.org Foundation C.I.C.
  * Copyright (C) 2023 New Vector, Ltd
  *
  * This program is free software: you can redistribute it and/or modify
@@ -59,6 +60,7 @@ fn bench_match_exact(b: &mut Bencher) {
         true,
         vec![],
         false,
+        false,
     )
     .unwrap();
 
@@ -103,6 +105,7 @@ fn bench_match_word(b: &mut Bencher) {
         Default::default(),
         true,
         vec![],
+        false,
         false,
     )
     .unwrap();
@@ -149,6 +152,7 @@ fn bench_match_word_miss(b: &mut Bencher) {
         true,
         vec![],
         false,
+        false,
     )
     .unwrap();
 
@@ -194,12 +198,14 @@ fn bench_eval_message(b: &mut Bencher) {
         true,
         vec![],
         false,
+        false,
     )
     .unwrap();
 
     let rules = FilteredPushRules::py_new(
         PushRules::new(Vec::new()),
         Default::default(),
+        false,
         false,
         false,
         false,

@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -80,7 +81,7 @@ def gz_wrap(r: Resource) -> Resource:
 
 
 class SynapseHomeServer(HomeServer):
-    DATASTORE_CLASS = DataStore  # type: ignore
+    DATASTORE_CLASS = DataStore
 
     def _listener_http(
         self,
@@ -99,6 +100,12 @@ class SynapseHomeServer(HomeServer):
                 if name == "openid" and "federation" in res.names:
                     # Skip loading openid resource if federation is defined
                     # since federation resource will include openid
+                    continue
+                if name == "media" and (
+                    "federation" in res.names or "client" in res.names
+                ):
+                    # Skip loading media resource if federation or client are defined
+                    # since federation & client resources will include media
                     continue
                 if name == "health":
                     # Skip loading, health resource is always included
@@ -187,9 +194,9 @@ class SynapseHomeServer(HomeServer):
                     PasswordResetSubmitTokenResource,
                 )
 
-                resources[
-                    "/_synapse/client/password_reset/email/submit_token"
-                ] = PasswordResetSubmitTokenResource(self)
+                resources["/_synapse/client/password_reset/email/submit_token"] = (
+                    PasswordResetSubmitTokenResource(self)
+                )
 
         if name == "consent":
             from synapse.rest.consent.consent_resource import ConsentResource
@@ -216,7 +223,7 @@ class SynapseHomeServer(HomeServer):
             )
 
         if name in ["media", "federation", "client"]:
-            if self.config.server.enable_media_repo:
+            if self.config.media.can_load_media_repo:
                 media_repo = self.get_media_repository_resource()
                 resources.update(
                     {
@@ -229,6 +236,14 @@ class SynapseHomeServer(HomeServer):
                 raise ConfigError(
                     "'media' resource conflicts with enable_media_repo=False"
                 )
+
+        if name == "media":
+            resources[FEDERATION_PREFIX] = TransportLayerServer(
+                self, servlet_groups=["media"]
+            )
+            resources[CLIENT_API_PREFIX] = ClientRestResource(
+                self, servlet_groups=["media"]
+            )
 
         if name in ["keys", "federation"]:
             resources[SERVER_KEY_PREFIX] = KeyResource(self)

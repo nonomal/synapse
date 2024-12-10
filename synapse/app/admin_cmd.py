@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -109,7 +110,7 @@ class AdminCmdStore(
 
 
 class AdminCmdServer(HomeServer):
-    DATASTORE_CLASS = AdminCmdStore  # type: ignore
+    DATASTORE_CLASS = AdminCmdStore
 
 
 async def export_data_command(hs: HomeServer, args: argparse.Namespace) -> None:

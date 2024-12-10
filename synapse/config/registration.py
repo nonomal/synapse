@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -169,9 +171,9 @@ class RegistrationConfig(Config):
             refreshable_access_token_lifetime = self.parse_duration(
                 refreshable_access_token_lifetime
             )
-        self.refreshable_access_token_lifetime: Optional[
-            int
-        ] = refreshable_access_token_lifetime
+        self.refreshable_access_token_lifetime: Optional[int] = (
+            refreshable_access_token_lifetime
+        )
 
         if (
             self.session_lifetime is not None
@@ -234,6 +236,14 @@ class RegistrationConfig(Config):
         self.fallback_success_template = self.read_template("auth_success.html")
 
         self.inhibit_user_in_use_error = config.get("inhibit_user_in_use_error", False)
+
+        # List of user IDs not to send out device list updates for when they
+        # register new devices. This is useful to handle bot accounts.
+        #
+        # Note: This will still send out device list updates if the device is
+        # later updated, e.g. end to end keys are added.
+        dont_notify_new_devices_for = config.get("dont_notify_new_devices_for", [])
+        self.dont_notify_new_devices_for = frozenset(dont_notify_new_devices_for)
 
     def generate_config_section(
         self, generate_secrets: bool = False, **kwargs: Any

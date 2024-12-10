@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -48,8 +50,7 @@ class _SelfSlice(Sized, Protocol):
     returned.
     """
 
-    def __getitem__(self: S, i: slice) -> S:
-        ...
+    def __getitem__(self: S, i: slice) -> S: ...
 
 
 def batch_iter(iterable: Iterable[T], size: int) -> Iterator[Tuple[T, ...]]:

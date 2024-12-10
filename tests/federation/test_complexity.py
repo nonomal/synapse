@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 Matrix.org Foundation
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -157,7 +158,9 @@ class RoomComplexityTests(unittest.FederatingHomeserverTestCase):
         async def get_current_state_event_counts(room_id: str) -> int:
             return 600
 
-        self.hs.get_datastores().main.get_current_state_event_counts = get_current_state_event_counts  # type: ignore[method-assign]
+        self.hs.get_datastores().main.get_current_state_event_counts = (  # type: ignore[method-assign]
+            get_current_state_event_counts
+        )
 
         d = handler._remote_join(
             create_requester(u1),

@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -386,9 +387,7 @@ class EndToEndRoomKeyStore(EndToEndRoomKeyBackgroundStore):
                is_verified, session_data
         FROM e2e_room_keys
         WHERE user_id = ? AND version = ? AND (%s)
-        """ % (
-            " OR ".join(where_clauses)
-        )
+        """ % (" OR ".join(where_clauses))
 
         txn.execute(sql, params)
 

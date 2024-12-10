@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -42,7 +43,6 @@ class RegistrationStoreTestCase(HomeserverTestCase):
 
         self.assertEqual(
             UserInfo(
-                # TODO(paul): Surely this field should be 'user_id', not 'name'
                 user_id=UserID.from_string(self.user_id),
                 is_admin=False,
                 is_guest=False,
@@ -56,6 +56,7 @@ class RegistrationStoreTestCase(HomeserverTestCase):
                 locked=False,
                 is_shadow_banned=False,
                 approved=True,
+                suspended=False,
             ),
             (self.get_success(self.store.get_user_by_id(self.user_id))),
         )

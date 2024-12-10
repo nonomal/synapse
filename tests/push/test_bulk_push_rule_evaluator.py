@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2022 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -119,9 +120,11 @@ class TestBulkPushRuleEvaluator(HomeserverTestCase):
         #
         # We have seen stringy and null values for "room" in the wild, so presumably
         # some of this validation was missing in the past.
-        with patch("synapse.events.validator.validate_canonicaljson"), patch(
-            "synapse.events.validator.jsonschema.validate"
-        ), patch("synapse.handlers.event_auth.check_state_dependent_auth_rules"):
+        with (
+            patch("synapse.events.validator.validate_canonicaljson"),
+            patch("synapse.events.validator.jsonschema.validate"),
+            patch("synapse.handlers.event_auth.check_state_dependent_auth_rules"),
+        ):
             pl_event_id = self.helper.send_state(
                 self.room_id,
                 "m.room.power_levels",

@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2023 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -22,6 +23,7 @@
 """
 This migration adds foreign key constraint to `event_forward_extremities` table.
 """
+
 from synapse.storage.background_updates import (
     ForeignKeyConstraint,
     run_validate_constraint_and_delete_rows_schema_delta,

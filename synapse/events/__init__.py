@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2020 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -91,16 +93,14 @@ class DictProperty(Generic[T]):
         self,
         instance: Literal[None],
         owner: Optional[Type[_DictPropertyInstance]] = None,
-    ) -> "DictProperty":
-        ...
+    ) -> "DictProperty": ...
 
     @overload
     def __get__(
         self,
         instance: _DictPropertyInstance,
         owner: Optional[Type[_DictPropertyInstance]] = None,
-    ) -> T:
-        ...
+    ) -> T: ...
 
     def __get__(
         self,
@@ -159,16 +159,14 @@ class DefaultDictProperty(DictProperty, Generic[T]):
         self,
         instance: Literal[None],
         owner: Optional[Type[_DictPropertyInstance]] = None,
-    ) -> "DefaultDictProperty":
-        ...
+    ) -> "DefaultDictProperty": ...
 
     @overload
     def __get__(
         self,
         instance: _DictPropertyInstance,
         owner: Optional[Type[_DictPropertyInstance]] = None,
-    ) -> T:
-        ...
+    ) -> T: ...
 
     def __get__(
         self,
@@ -556,3 +554,22 @@ def relation_from_event(event: EventBase) -> Optional[_EventRelation]:
             aggregation_key = None
 
     return _EventRelation(parent_id, rel_type, aggregation_key)
+
+
+@attr.s(slots=True, frozen=True, auto_attribs=True)
+class StrippedStateEvent:
+    """
+    A stripped down state event. Usually used for remote invite/knocks so the user can
+    make an informed decision on whether they want to join.
+
+    Attributes:
+        type: Event `type`
+        state_key: Event `state_key`
+        sender: Event `sender`
+        content: Event `content`
+    """
+
+    type: str
+    state_key: str
+    sender: str
+    content: Dict[str, Any]

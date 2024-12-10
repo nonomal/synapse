@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -511,11 +512,9 @@ class DirectoryHandler:
                 raise SynapseError(403, "Not allowed to publish room")
 
             # Check if publishing is blocked by a third party module
-            allowed_by_third_party_rules = (
-                await (
-                    self._third_party_event_rules.check_visibility_can_be_modified(
-                        room_id, visibility
-                    )
+            allowed_by_third_party_rules = await (
+                self._third_party_event_rules.check_visibility_can_be_modified(
+                    room_id, visibility
                 )
             )
             if not allowed_by_third_party_rules:

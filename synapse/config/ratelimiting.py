@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -216,4 +217,14 @@ class RatelimitConfig(Config):
             config,
             "rc_media_create",
             defaults={"per_second": 10, "burst_count": 50},
+        )
+
+        self.remote_media_downloads = RatelimitSettings(
+            key="rc_remote_media_downloads",
+            per_second=self.parse_size(
+                config.get("remote_media_download_per_second", "87K")
+            ),
+            burst_count=self.parse_size(
+                config.get("remote_media_download_burst_count", "500M")
+            ),
         )

@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -40,6 +41,7 @@ from synapse.storage.database import (
     LoggingDatabaseConnection,
     LoggingTransaction,
 )
+from synapse.storage.databases.main.events import SLIDING_SYNC_RELEVANT_STATE_SET
 from synapse.storage.engines import PostgresEngine
 from synapse.storage.util.id_generators import MultiWriterIdGenerator
 from synapse.util.caches.descriptors import CachedFunction
@@ -267,17 +269,32 @@ class CacheInvalidationWorkerStore(SQLBaseStore):
             self._curr_state_delta_stream_cache.entity_has_changed(data.room_id, token)  # type: ignore[attr-defined]
 
             if data.type == EventTypes.Member:
-                self.get_rooms_for_user_with_stream_ordering.invalidate(  # type: ignore[attr-defined]
-                    (data.state_key,)
+                self._attempt_to_invalidate_cache(
+                    "get_rooms_for_user", (data.state_key,)
                 )
-                self.get_rooms_for_user.invalidate((data.state_key,))  # type: ignore[attr-defined]
+                self._attempt_to_invalidate_cache(
+                    "get_sliding_sync_rooms_for_user", None
+                )
+            elif data.type == EventTypes.RoomEncryption:
+                self._attempt_to_invalidate_cache(
+                    "get_room_encryption", (data.room_id,)
+                )
+            elif data.type == EventTypes.Create:
+                self._attempt_to_invalidate_cache("get_room_type", (data.room_id,))
+
+            if (data.type, data.state_key) in SLIDING_SYNC_RELEVANT_STATE_SET:
+                self._attempt_to_invalidate_cache(
+                    "get_sliding_sync_rooms_for_user", None
+                )
         elif row.type == EventsStreamAllStateRow.TypeId:
             assert isinstance(data, EventsStreamAllStateRow)
             # Similar to the above, but the entire caches are invalidated. This is
             # unfortunate for the membership caches, but should recover quickly.
             self._curr_state_delta_stream_cache.entity_has_changed(data.room_id, token)  # type: ignore[attr-defined]
-            self.get_rooms_for_user_with_stream_ordering.invalidate_all()  # type: ignore[attr-defined]
-            self.get_rooms_for_user.invalidate_all()  # type: ignore[attr-defined]
+            self._attempt_to_invalidate_cache("get_rooms_for_user", None)
+            self._attempt_to_invalidate_cache("get_room_type", (data.room_id,))
+            self._attempt_to_invalidate_cache("get_room_encryption", (data.room_id,))
+            self._attempt_to_invalidate_cache("get_sliding_sync_rooms_for_user", None)
         else:
             raise Exception("Unknown events stream row type %s" % (row.type,))
 
@@ -305,6 +322,9 @@ class CacheInvalidationWorkerStore(SQLBaseStore):
         self._attempt_to_invalidate_cache(
             "get_unread_event_push_actions_by_room_for_user", (room_id,)
         )
+        self._attempt_to_invalidate_cache("get_metadata_for_event", (room_id, event_id))
+
+        self._attempt_to_invalidate_cache("_get_max_event_pos", (room_id,))
 
         # The `_get_membership_from_event_id` is immutable, except for the
         # case where we look up an event *before* persisting it.
@@ -317,7 +337,13 @@ class CacheInvalidationWorkerStore(SQLBaseStore):
             self._invalidate_local_get_event_cache(redacts)  # type: ignore[attr-defined]
             # Caches which might leak edits must be invalidated for the event being
             # redacted.
-            self._attempt_to_invalidate_cache("get_relations_for_event", (redacts,))
+            self._attempt_to_invalidate_cache(
+                "get_relations_for_event",
+                (
+                    room_id,
+                    redacts,
+                ),
+            )
             self._attempt_to_invalidate_cache("get_applicable_edit", (redacts,))
             self._attempt_to_invalidate_cache("get_thread_id", (redacts,))
             self._attempt_to_invalidate_cache("get_thread_id_for_receipts", (redacts,))
@@ -327,10 +353,13 @@ class CacheInvalidationWorkerStore(SQLBaseStore):
             self._attempt_to_invalidate_cache(
                 "get_invited_rooms_for_local_user", (state_key,)
             )
-            self._attempt_to_invalidate_cache(
-                "get_rooms_for_user_with_stream_ordering", (state_key,)
-            )
             self._attempt_to_invalidate_cache("get_rooms_for_user", (state_key,))
+            self._attempt_to_invalidate_cache(
+                "_get_rooms_for_local_user_where_membership_is_inner", (state_key,)
+            )
+            self._attempt_to_invalidate_cache(
+                "get_sliding_sync_rooms_for_user", (state_key,)
+            )
 
             self._attempt_to_invalidate_cache(
                 "did_forget",
@@ -342,9 +371,22 @@ class CacheInvalidationWorkerStore(SQLBaseStore):
             self._attempt_to_invalidate_cache(
                 "get_forgotten_rooms_for_user", (state_key,)
             )
+        elif etype == EventTypes.Create:
+            self._attempt_to_invalidate_cache("get_room_type", (room_id,))
+        elif etype == EventTypes.RoomEncryption:
+            self._attempt_to_invalidate_cache("get_room_encryption", (room_id,))
+
+        if (etype, state_key) in SLIDING_SYNC_RELEVANT_STATE_SET:
+            self._attempt_to_invalidate_cache("get_sliding_sync_rooms_for_user", None)
 
         if relates_to:
-            self._attempt_to_invalidate_cache("get_relations_for_event", (relates_to,))
+            self._attempt_to_invalidate_cache(
+                "get_relations_for_event",
+                (
+                    room_id,
+                    relates_to,
+                ),
+            )
             self._attempt_to_invalidate_cache("get_references_for_event", (relates_to,))
             self._attempt_to_invalidate_cache("get_applicable_edit", (relates_to,))
             self._attempt_to_invalidate_cache("get_thread_summary", (relates_to,))
@@ -372,34 +414,40 @@ class CacheInvalidationWorkerStore(SQLBaseStore):
         deleted.
         """
 
-        self._invalidate_local_get_event_cache_all()  # type: ignore[attr-defined]
+        self._invalidate_local_get_event_cache_room_id(room_id)  # type: ignore[attr-defined]
 
         self._attempt_to_invalidate_cache("have_seen_event", (room_id,))
         self._attempt_to_invalidate_cache("get_latest_event_ids_in_room", (room_id,))
         self._attempt_to_invalidate_cache(
             "get_unread_event_push_actions_by_room_for_user", (room_id,)
         )
+        self._attempt_to_invalidate_cache("get_relations_for_event", (room_id,))
+
+        self._attempt_to_invalidate_cache("_get_max_event_pos", (room_id,))
 
         self._attempt_to_invalidate_cache("_get_membership_from_event_id", None)
-        self._attempt_to_invalidate_cache("get_relations_for_event", None)
         self._attempt_to_invalidate_cache("get_applicable_edit", None)
         self._attempt_to_invalidate_cache("get_thread_id", None)
         self._attempt_to_invalidate_cache("get_thread_id_for_receipts", None)
         self._attempt_to_invalidate_cache("get_invited_rooms_for_local_user", None)
-        self._attempt_to_invalidate_cache(
-            "get_rooms_for_user_with_stream_ordering", None
-        )
         self._attempt_to_invalidate_cache("get_rooms_for_user", None)
+        self._attempt_to_invalidate_cache(
+            "_get_rooms_for_local_user_where_membership_is_inner", None
+        )
+        self._attempt_to_invalidate_cache("get_sliding_sync_rooms_for_user", None)
         self._attempt_to_invalidate_cache("did_forget", None)
         self._attempt_to_invalidate_cache("get_forgotten_rooms_for_user", None)
         self._attempt_to_invalidate_cache("get_references_for_event", None)
         self._attempt_to_invalidate_cache("get_thread_summary", None)
         self._attempt_to_invalidate_cache("get_thread_participated", None)
         self._attempt_to_invalidate_cache("get_threads", (room_id,))
+        self._attempt_to_invalidate_cache("get_room_type", (room_id,))
+        self._attempt_to_invalidate_cache("get_room_encryption", (room_id,))
 
         self._attempt_to_invalidate_cache("_get_state_group_for_event", None)
 
         self._attempt_to_invalidate_cache("get_event_ordering", None)
+        self._attempt_to_invalidate_cache("get_metadata_for_event", (room_id,))
         self._attempt_to_invalidate_cache("is_partial_state_event", None)
         self._attempt_to_invalidate_cache("_get_joined_profile_from_event_id", None)
 
@@ -425,6 +473,7 @@ class CacheInvalidationWorkerStore(SQLBaseStore):
 
         self._attempt_to_invalidate_cache("get_account_data_for_room", None)
         self._attempt_to_invalidate_cache("get_account_data_for_room_and_type", None)
+        self._attempt_to_invalidate_cache("get_tags_for_room", None)
         self._attempt_to_invalidate_cache("get_aliases_for_room", (room_id,))
         self._attempt_to_invalidate_cache("get_latest_event_ids_in_room", (room_id,))
         self._attempt_to_invalidate_cache("_get_forward_extremeties_for_room", None)
@@ -444,10 +493,15 @@ class CacheInvalidationWorkerStore(SQLBaseStore):
         self._attempt_to_invalidate_cache(
             "get_current_hosts_in_room_ordered", (room_id,)
         )
+        self._attempt_to_invalidate_cache("get_sliding_sync_rooms_for_user", None)
         self._attempt_to_invalidate_cache("did_forget", None)
         self._attempt_to_invalidate_cache("get_forgotten_rooms_for_user", None)
         self._attempt_to_invalidate_cache("_get_membership_from_event_id", None)
         self._attempt_to_invalidate_cache("get_room_version_id", (room_id,))
+        self._attempt_to_invalidate_cache("get_room_type", (room_id,))
+        self._attempt_to_invalidate_cache("get_room_encryption", (room_id,))
+
+        self._attempt_to_invalidate_cache("_get_max_event_pos", (room_id,))
 
         # And delete state caches.
 

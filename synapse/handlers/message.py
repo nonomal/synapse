@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019-2020 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -32,6 +34,7 @@ from synapse.api.constants import (
     EventTypes,
     GuestAccess,
     HistoryVisibility,
+    JoinRules,
     Membership,
     RelationTypes,
     UserTypes,
@@ -193,12 +196,14 @@ class MessageHandler:
             AuthError (403) if the user doesn't have permission to view
             members of this room.
         """
-        state_filter = state_filter or StateFilter.all()
+        if state_filter is None:
+            state_filter = StateFilter.all()
+
         user_id = requester.user.to_string()
 
         if at_token:
             last_event_id = (
-                await self.store.get_last_event_in_room_before_stream_ordering(
+                await self.store.get_last_event_id_in_room_before_stream_ordering(
                     room_id,
                     end_token=at_token.room_key,
                 )
@@ -493,13 +498,6 @@ class EventCreationHandler:
 
         self.room_prejoin_state_types = self.hs.config.api.room_prejoin_state
 
-        self.membership_types_to_include_profile_data_in = {
-            Membership.JOIN,
-            Membership.KNOCK,
-        }
-        if self.hs.config.server.include_profile_data_on_invite:
-            self.membership_types_to_include_profile_data_in.add(Membership.INVITE)
-
         self.send_event = ReplicationSendEventRestServlet.make_client(hs)
         self.send_events = ReplicationSendEventsRestServlet.make_client(hs)
 
@@ -591,8 +589,6 @@ class EventCreationHandler:
         Creates an FrozenEvent object, filling out auth_events, prev_events,
         etc.
 
-        Adds display names to Join membership events.
-
         Args:
             requester
             event_dict: An entire event
@@ -648,6 +644,17 @@ class EventCreationHandler:
         """
         await self.auth_blocking.check_auth_blocking(requester=requester)
 
+        if event_dict["type"] == EventTypes.Message:
+            requester_suspended = await self.store.get_user_suspended_status(
+                requester.user.to_string()
+            )
+            if requester_suspended:
+                raise SynapseError(
+                    403,
+                    "Sending messages while account is suspended is not allowed.",
+                    Codes.USER_ACCOUNT_SUSPENDED,
+                )
+
         if event_dict["type"] == EventTypes.Create and event_dict["state_key"] == "":
             room_version_id = event_dict["content"]["room_version"]
             maybe_room_version_obj = KNOWN_ROOM_VERSIONS.get(room_version_id)
@@ -668,29 +675,6 @@ class EventCreationHandler:
         )
 
         self.validator.validate_builder(builder)
-
-        if builder.type == EventTypes.Member:
-            membership = builder.content.get("membership", None)
-            target = UserID.from_string(builder.state_key)
-
-            if membership in self.membership_types_to_include_profile_data_in:
-                # If event doesn't include a display name, add one.
-                profile = self.profile_handler
-                content = builder.content
-
-                try:
-                    if "displayname" not in content:
-                        displayname = await profile.get_displayname(target)
-                        if displayname is not None:
-                            content["displayname"] = displayname
-                    if "avatar_url" not in content:
-                        avatar_url = await profile.get_avatar_url(target)
-                        if avatar_url is not None:
-                            content["avatar_url"] = avatar_url
-                except Exception as e:
-                    logger.info(
-                        "Failed to get profile information for %r: %s", target, e
-                    )
 
         is_exempt = await self._is_exempt_from_privacy_policy(builder, requester)
         if require_consent and not is_exempt:
@@ -1243,10 +1227,9 @@ class EventCreationHandler:
             )
 
         if prev_event_ids is not None:
-            assert (
-                len(prev_event_ids) <= 10
-            ), "Attempting to create an event with %i prev_events" % (
-                len(prev_event_ids),
+            assert len(prev_event_ids) <= 10, (
+                "Attempting to create an event with %i prev_events"
+                % (len(prev_event_ids),)
             )
         else:
             prev_event_ids = await self.store.get_prev_events_for_room(builder.room_id)
@@ -1323,6 +1306,18 @@ class EventCreationHandler:
 
         self.validator.validate_new(event, self.config)
         await self._validate_event_relation(event)
+
+        if event.type == EventTypes.CallInvite:
+            room_id = event.room_id
+            room_info = await self.store.get_room_with_stats(room_id)
+            assert room_info is not None
+
+            if room_info.join_rules == JoinRules.PUBLIC:
+                raise SynapseError(
+                    403,
+                    "Call invites are not allowed in public rooms.",
+                    Codes.FORBIDDEN,
+                )
         logger.debug("Created event %s", event.event_id)
 
         return event, context
@@ -1568,6 +1563,7 @@ class EventCreationHandler:
                     # stream_ordering entry manually (as it was persisted on
                     # another worker).
                     event.internal_metadata.stream_ordering = stream_id
+                    event.internal_metadata.instance_name = writer_instance
 
                 return event
 
@@ -1652,9 +1648,9 @@ class EventCreationHandler:
                     expiry_ms=60 * 60 * 1000,
                 )
 
-                self._external_cache_joined_hosts_updates[
-                    state_entry.state_group
-                ] = None
+                self._external_cache_joined_hosts_updates[state_entry.state_group] = (
+                    None
+                )
 
     async def _validate_canonical_alias(
         self,

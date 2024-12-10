@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 The Matrix.org Foundation C.I.C.
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -198,16 +200,13 @@ class KeyConfig(Config):
             )
             form_secret = 'form_secret: "%s"' % random_string_with_symbols(50)
 
-        return (
-            """\
+        return """\
         %(macaroon_secret_key)s
         %(form_secret)s
         signing_key_path: "%(base_key_name)s.signing.key"
         trusted_key_servers:
           - server_name: "matrix.org"
-        """
-            % locals()
-        )
+        """ % locals()
 
     def read_signing_keys(self, signing_key_path: str, name: str) -> List[SigningKey]:
         """Read the signing keys in the given path.
@@ -247,7 +246,9 @@ class KeyConfig(Config):
             if is_signing_algorithm_supported(key_id):
                 key_base64 = key_data["key"]
                 key_bytes = decode_base64(key_base64)
-                verify_key: "VerifyKeyWithExpiry" = decode_verify_key_bytes(key_id, key_bytes)  # type: ignore[assignment]
+                verify_key: "VerifyKeyWithExpiry" = decode_verify_key_bytes(
+                    key_id, key_bytes
+                )  # type: ignore[assignment]
                 verify_key.expired = key_data["expired_ts"]
                 keys[key_id] = verify_key
             else:

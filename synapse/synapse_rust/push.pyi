@@ -1,4 +1,5 @@
 # Copyright 2022 The Matrix.org Foundation C.I.C.
+# Copyright 2022 The Matrix.org Foundation C.I.C.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -47,6 +48,7 @@ class FilteredPushRules:
         msc3381_polls_enabled: bool,
         msc3664_enabled: bool,
         msc4028_push_encrypted_events: bool,
+        msc4210_enabled: bool,
     ): ...
     def rules(self) -> Collection[Tuple[PushRule, bool]]: ...
 
@@ -64,6 +66,7 @@ class PushRuleEvaluator:
         related_event_match_enabled: bool,
         room_version_feature_flags: Tuple[str, ...],
         msc3931_enabled: bool,
+        msc4210_enabled: bool,
     ): ...
     def run(
         self,

@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2014 - 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -26,7 +27,6 @@ from synapse.api.constants import Direction, EventTypes, Membership
 from synapse.api.errors import SynapseError
 from synapse.api.filtering import Filter
 from synapse.events.utils import SerializeEventConfig
-from synapse.handlers.room import ShutdownRoomParams, ShutdownRoomResponse
 from synapse.handlers.worker_lock import NEW_EVENT_DURING_PURGE_LOCK_NAME
 from synapse.logging.opentracing import trace
 from synapse.metrics.background_process_metrics import run_as_background_process
@@ -40,6 +40,7 @@ from synapse.types import (
     StreamKeyType,
     TaskStatus,
 )
+from synapse.types.handlers import ShutdownRoomParams, ShutdownRoomResponse
 from synapse.types.state import StateFilter
 from synapse.util.async_helpers import ReadWriteLock
 from synapse.visibility import filter_events_for_client
@@ -506,7 +507,11 @@ class PaginationHandler:
 
         # Initially fetch the events from the database. With any luck, we can return
         # these without blocking on backfill (handled below).
-        events, next_key = await self.store.paginate_room_events(
+        (
+            events,
+            next_key,
+            _,
+        ) = await self.store.paginate_room_events_by_topological_ordering(
             room_id=room_id,
             from_key=from_token.room_key,
             to_key=to_room_key,
@@ -581,7 +586,11 @@ class PaginationHandler:
                 # If we did backfill something, refetch the events from the database to
                 # catch anything new that might have been added since we last fetched.
                 if did_backfill:
-                    events, next_key = await self.store.paginate_room_events(
+                    (
+                        events,
+                        next_key,
+                        _,
+                    ) = await self.store.paginate_room_events_by_topological_ordering(
                         room_id=room_id,
                         from_key=from_token.room_key,
                         to_key=to_room_key,

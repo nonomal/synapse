@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2019 The Matrix.org Foundation C.I.C.
+# Copyright 2014-2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -414,7 +416,7 @@ class EventsPersistenceStorageController:
         set_tag(SynapseTags.FUNC_ARG_PREFIX + "backfilled", str(backfilled))
 
         async def enqueue(
-            item: Tuple[str, List[Tuple[EventBase, EventContext]]]
+            item: Tuple[str, List[Tuple[EventBase, EventContext]]],
         ) -> Dict[str, str]:
             room_id, evs_ctxs = item
             return await self._event_persist_queue.add_to_queue(
@@ -500,8 +502,15 @@ class EventsPersistenceStorageController:
         """
         state = await self._calculate_current_state(room_id)
         delta = await self._calculate_state_delta(room_id, state)
+        sliding_sync_table_changes = (
+            await self.persist_events_store._calculate_sliding_sync_table_changes(
+                room_id, [], delta
+            )
+        )
 
-        await self.persist_events_store.update_current_state(room_id, delta)
+        await self.persist_events_store.update_current_state(
+            room_id, delta, sliding_sync_table_changes
+        )
 
     async def _calculate_current_state(self, room_id: str) -> StateMap[str]:
         """Calculate the current state of a room, based on the forward extremities
@@ -615,6 +624,17 @@ class EventsPersistenceStorageController:
                         room_id, chunk
                     )
 
+            with Measure(self._clock, "calculate_chain_cover_index_for_events"):
+                # We now calculate chain ID/sequence numbers for any state events we're
+                # persisting. We ignore out of band memberships as we're not in the room
+                # and won't have their auth chain (we'll fix it up later if we join the
+                # room).
+                #
+                # See: docs/auth_chain_difference_algorithm.md
+                new_event_links = await self.persist_events_store.calculate_chain_cover_index_for_events(
+                    room_id, [e for e, _ in chunk]
+                )
+
             await self.persist_events_store._persist_events_and_state_updates(
                 room_id,
                 chunk,
@@ -622,6 +642,7 @@ class EventsPersistenceStorageController:
                 new_forward_extremities=new_forward_extremities,
                 use_negative_stream_ordering=backfilled,
                 inhibit_local_membership_updates=backfilled,
+                new_event_links=new_event_links,
             )
 
         return replaced_events

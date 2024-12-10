@@ -2,6 +2,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2022-2023 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -43,7 +44,7 @@ logger = logging.getLogger("generate_workers_map")
 
 
 class MockHomeserver(HomeServer):
-    DATASTORE_CLASS = DataStore  # type: ignore
+    DATASTORE_CLASS = DataStore
 
     def __init__(self, config: HomeServerConfig, worker_app: Optional[str]) -> None:
         super().__init__(config.server.server_name, config=config)
@@ -170,7 +171,7 @@ def elide_http_methods_if_unconflicting(
     """
 
     def paths_to_methods_dict(
-        methods_and_paths: Iterable[Tuple[str, str]]
+        methods_and_paths: Iterable[Tuple[str, str]],
     ) -> Dict[str, Set[str]]:
         """
         Given (method, path) pairs, produces a dict from path to set of methods
@@ -200,7 +201,7 @@ def elide_http_methods_if_unconflicting(
 
 
 def simplify_path_regexes(
-    registrations: Dict[Tuple[str, str], EndpointDescription]
+    registrations: Dict[Tuple[str, str], EndpointDescription],
 ) -> Dict[Tuple[str, str], EndpointDescription]:
     """
     Simplify all the path regexes for the dict of endpoint descriptions,

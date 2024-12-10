@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -93,7 +94,7 @@ class SearchWorkerStore(SQLBaseStore):
             VALUES (?,?,?,to_tsvector('english', ?),?,?)
             """
 
-            args1 = (
+            args1 = [
                 (
                     entry.event_id,
                     entry.room_id,
@@ -103,7 +104,7 @@ class SearchWorkerStore(SQLBaseStore):
                     entry.origin_server_ts,
                 )
                 for entry in entries
-            )
+            ]
 
             txn.execute_batch(sql, args1)
 
@@ -176,9 +177,7 @@ class SearchBackgroundUpdateStore(SearchWorkerStore):
             AND (%s)
             ORDER BY stream_ordering DESC
             LIMIT ?
-            """ % (
-                " OR ".join("type = '%s'" % (t,) for t in TYPES),
-            )
+            """ % (" OR ".join("type = '%s'" % (t,) for t in TYPES),)
 
             txn.execute(sql, (target_min_stream_id, max_stream_id, batch_size))
 
@@ -469,6 +468,8 @@ class SearchStore(SearchBackgroundUpdateStore):
         count_args = args
         count_clauses = clauses
 
+        sqlite_highlights: List[str] = []
+
         if isinstance(self.database_engine, PostgresEngine):
             search_query = search_term
             sql = """
@@ -485,7 +486,7 @@ class SearchStore(SearchBackgroundUpdateStore):
             """
             count_args = [search_query] + count_args
         elif isinstance(self.database_engine, Sqlite3Engine):
-            search_query = _parse_query_for_sqlite(search_term)
+            search_query, sqlite_highlights = _parse_query_for_sqlite(search_term)
 
             sql = """
             SELECT rank(matchinfo(event_search)) as rank, room_id, event_id
@@ -530,9 +531,11 @@ class SearchStore(SearchBackgroundUpdateStore):
 
         event_map = {ev.event_id: ev for ev in events}
 
-        highlights = None
+        highlights: Collection[str] = []
         if isinstance(self.database_engine, PostgresEngine):
             highlights = await self._find_highlights_in_postgres(search_query, events)
+        else:
+            highlights = sqlite_highlights
 
         count_sql += " GROUP BY room_id"
 
@@ -596,6 +599,8 @@ class SearchStore(SearchBackgroundUpdateStore):
         count_args = list(args)
         count_clauses = list(clauses)
 
+        sqlite_highlights: List[str] = []
+
         if pagination_token:
             try:
                 origin_server_ts_str, stream_str = pagination_token.split(",")
@@ -646,7 +651,7 @@ class SearchStore(SearchBackgroundUpdateStore):
             CROSS JOIN events USING (event_id)
             WHERE
             """
-            search_query = _parse_query_for_sqlite(search_term)
+            search_query, sqlite_highlights = _parse_query_for_sqlite(search_term)
             args = [search_query] + args
 
             count_sql = """
@@ -693,9 +698,11 @@ class SearchStore(SearchBackgroundUpdateStore):
 
         event_map = {ev.event_id: ev for ev in events}
 
-        highlights = None
+        highlights: Collection[str] = []
         if isinstance(self.database_engine, PostgresEngine):
             highlights = await self._find_highlights_in_postgres(search_query, events)
+        else:
+            highlights = sqlite_highlights
 
         count_sql += " GROUP BY room_id"
 
@@ -891,19 +898,25 @@ def _tokenize_query(query: str) -> TokenList:
     return tokens
 
 
-def _tokens_to_sqlite_match_query(tokens: TokenList) -> str:
+def _tokens_to_sqlite_match_query(tokens: TokenList) -> Tuple[str, List[str]]:
     """
     Convert the list of tokens to a string suitable for passing to sqlite's MATCH.
     Assume sqlite was compiled with enhanced query syntax.
 
+    Returns the sqlite-formatted query string and the tokenized search terms
+    that can be used as highlights.
+
     Ref: https://www.sqlite.org/fts3.html#full_text_index_queries
     """
     match_query = []
+    highlights = []
     for token in tokens:
         if isinstance(token, str):
             match_query.append(token)
+            highlights.append(token)
         elif isinstance(token, Phrase):
             match_query.append('"' + " ".join(token.phrase) + '"')
+            highlights.append(" ".join(token.phrase))
         elif token == SearchToken.Not:
             # TODO: SQLite treats NOT as a *binary* operator. Hopefully a search
             # term has already been added before this.
@@ -915,11 +928,14 @@ def _tokens_to_sqlite_match_query(tokens: TokenList) -> str:
         else:
             raise ValueError(f"unknown token {token}")
 
-    return "".join(match_query)
+    return "".join(match_query), highlights
 
 
-def _parse_query_for_sqlite(search_term: str) -> str:
+def _parse_query_for_sqlite(search_term: str) -> Tuple[str, List[str]]:
     """Takes a plain unicode string from the user and converts it into a form
     that can be passed to sqllite's matchinfo().
+
+    Returns the converted query string and the tokenized search terms
+    that can be used as highlights.
     """
     return _tokens_to_sqlite_match_query(_tokenize_query(search_term))

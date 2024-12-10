@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -149,7 +150,8 @@ class ApplicationServiceSchedulerTransactionCtrlTestCase(unittest.TestCase):
         self.assertEqual(1, len(self.txnctrl.recoverers))  # and stored
         self.assertEqual(0, txn.complete.call_count)  # txn not completed
         self.store.set_appservice_state.assert_called_once_with(
-            service, ApplicationServiceState.DOWN  # service marked as down
+            service,
+            ApplicationServiceState.DOWN,  # service marked as down
         )
 
 

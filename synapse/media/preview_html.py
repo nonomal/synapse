@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -159,8 +160,7 @@ def decode_body(
 
     # Attempt to parse the body. Returns None if the body was successfully
     # parsed, but no tree was found.
-    # TODO Develop of lxml-stubs has this correct.
-    return etree.fromstring(body, parser)  # type: ignore[arg-type]
+    return etree.fromstring(body, parser)
 
 
 def _get_meta_tags(

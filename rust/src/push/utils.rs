@@ -1,6 +1,7 @@
 /*
  * This file is licensed under the Affero General Public License (AGPL) version 3.
  *
+ * Copyright 2022 The Matrix.org Foundation C.I.C.
  * Copyright (C) 2023 New Vector, Ltd
  *
  * This program is free software: you can redistribute it and/or modify
@@ -22,7 +23,6 @@ use anyhow::bail;
 use anyhow::Context;
 use anyhow::Error;
 use lazy_static::lazy_static;
-use regex;
 use regex::Regex;
 use regex::RegexBuilder;
 

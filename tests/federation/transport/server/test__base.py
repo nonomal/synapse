@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2022 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -143,6 +144,13 @@ class BaseFederationAuthorizationTests(unittest.TestCase):
         self.assertEqual(
             _parse_auth_header(
                 b'X-Matrix origin=foo,key="ed25519:1",sig="sig",destination="bar",extra_field=ignored'
+            ),
+            ("foo", "ed25519:1", "sig", "bar"),
+        )
+        # test that "optional whitespace(s)" (space and tabulation) are allowed between comma-separated auth-param components
+        self.assertEqual(
+            _parse_auth_header(
+                b'X-Matrix origin=foo , key="ed25519:1",  sig="sig",	destination="bar",		extra_field=ignored'
             ),
             ("foo", "ed25519:1", "sig", "bar"),
         )

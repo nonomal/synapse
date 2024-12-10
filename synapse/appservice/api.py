@@ -1,6 +1,8 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2022 The Matrix.org Foundation C.I.C.
+# Copyright 2015, 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -360,16 +362,16 @@ class ApplicationServiceApi(SimpleHttpClient):
         # TODO: Update to stable prefixes once MSC3202 completes FCP merge
         if service.msc3202_transaction_extensions:
             if one_time_keys_count:
-                body[
-                    "org.matrix.msc3202.device_one_time_key_counts"
-                ] = one_time_keys_count
-                body[
-                    "org.matrix.msc3202.device_one_time_keys_count"
-                ] = one_time_keys_count
+                body["org.matrix.msc3202.device_one_time_key_counts"] = (
+                    one_time_keys_count
+                )
+                body["org.matrix.msc3202.device_one_time_keys_count"] = (
+                    one_time_keys_count
+                )
             if unused_fallback_keys:
-                body[
-                    "org.matrix.msc3202.device_unused_fallback_key_types"
-                ] = unused_fallback_keys
+                body["org.matrix.msc3202.device_unused_fallback_key_types"] = (
+                    unused_fallback_keys
+                )
             if device_list_summary:
                 body["org.matrix.msc3202.device_lists"] = {
                     "changed": list(device_list_summary.changed),

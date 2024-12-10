@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -33,8 +34,7 @@ from tests import unittest
 
 
 class UnblockFunction(Protocol):
-    def __call__(self, pump_reactor: bool = True) -> None:
-        ...
+    def __call__(self, pump_reactor: bool = True) -> None: ...
 
 
 class LinearizerTestCase(unittest.TestCase):

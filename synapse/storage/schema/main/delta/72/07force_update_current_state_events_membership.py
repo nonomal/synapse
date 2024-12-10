@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2022 Beeper
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -25,6 +26,7 @@ for its completion can be removed.
 
 Note the background job must still remain defined in the database class.
 """
+
 from synapse.config.homeserver import HomeServerConfig
 from synapse.storage.database import LoggingTransaction
 from synapse.storage.engines import BaseDatabaseEngine

@@ -1,6 +1,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2016 OpenMarket Ltd
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -102,6 +103,9 @@ class DeviceMessageHandler:
     async def on_direct_to_device_edu(self, origin: str, content: JsonDict) -> None:
         """
         Handle receiving to-device messages from remote homeservers.
+
+        Note that any errors thrown from this method will cause the federation /send
+        request to receive an error response.
 
         Args:
             origin: The remote homeserver.
@@ -232,6 +236,13 @@ class DeviceMessageHandler:
         local_messages = {}
         remote_messages: Dict[str, Dict[str, Dict[str, JsonDict]]] = {}
         for user_id, by_device in messages.items():
+            if not UserID.is_valid(user_id):
+                logger.warning(
+                    "Ignoring attempt to send device message to invalid user: %r",
+                    user_id,
+                )
+                continue
+
             # add an opentracing log entry for each message
             for device_id, message_content in by_device.items():
                 log_kv(

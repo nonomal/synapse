@@ -2,6 +2,7 @@
 #
 # This file is licensed under the Affero General Public License (AGPL) version 3.
 #
+# Copyright 2021 The Matrix.org Foundation C.I.C.
 # Copyright (C) 2023 New Vector, Ltd
 #
 # This program is free software: you can redistribute it and/or modify
@@ -58,6 +59,7 @@ import platform
 import re
 import subprocess
 import sys
+from argparse import ArgumentParser
 from collections import defaultdict
 from itertools import chain
 from pathlib import Path
@@ -115,7 +117,7 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
     },
     "media_repository": {
         "app": "synapse.app.generic_worker",
-        "listener_resources": ["media"],
+        "listener_resources": ["media", "client"],
         "endpoint_patterns": [
             "^/_matrix/media/",
             "^/_synapse/admin/v1/purge_media_cache$",
@@ -123,6 +125,8 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
             "^/_synapse/admin/v1/user/.*/media.*$",
             "^/_synapse/admin/v1/media/.*$",
             "^/_synapse/admin/v1/quarantine_media/.*$",
+            "^/_matrix/client/v1/media/.*$",
+            "^/_matrix/federation/v1/media/.*$",
         ],
         # The first configured media worker will run the media background jobs
         "shared_extra_conf": {
@@ -209,6 +213,8 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
             "^/_matrix/federation/(v1|v2)/make_leave/",
             "^/_matrix/federation/(v1|v2)/send_join/",
             "^/_matrix/federation/(v1|v2)/send_leave/",
+            "^/_matrix/federation/v1/make_knock/",
+            "^/_matrix/federation/v1/send_knock/",
             "^/_matrix/federation/(v1|v2)/invite/",
             "^/_matrix/federation/(v1|v2)/query_auth/",
             "^/_matrix/federation/(v1|v2)/event_auth/",
@@ -308,6 +314,13 @@ WORKERS_CONFIG: Dict[str, Dict[str, Any]] = {
         "shared_extra_conf": {},
         "worker_extra_conf": "",
     },
+    "push_rules": {
+        "app": "synapse.app.generic_worker",
+        "listener_resources": ["client", "replication"],
+        "endpoint_patterns": ["^/_matrix/client/(api/v1|r0|v3|unstable)/pushrules/"],
+        "shared_extra_conf": {},
+        "worker_extra_conf": "",
+    },
 }
 
 # Templates for sections that may be inserted multiple times in config files
@@ -399,6 +412,7 @@ def add_worker_roles_to_shared_config(
         "receipts",
         "to_device",
         "typing",
+        "push_rules",
     ]
 
     # Worker-type specific sharding config. Now a single worker can fulfill multiple
@@ -1024,6 +1038,14 @@ def generate_worker_log_config(
 
 
 def main(args: List[str], environ: MutableMapping[str, str]) -> None:
+    parser = ArgumentParser()
+    parser.add_argument(
+        "--generate-only",
+        action="store_true",
+        help="Only generate configuration; don't run Synapse.",
+    )
+    opts = parser.parse_args(args)
+
     config_dir = environ.get("SYNAPSE_CONFIG_DIR", "/data")
     config_path = environ.get("SYNAPSE_CONFIG_PATH", config_dir + "/homeserver.yaml")
     data_dir = environ.get("SYNAPSE_DATA_DIR", "/data")
@@ -1065,6 +1087,10 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
     else:
         log("Worker config exists—not regenerating")
 
+    if opts.generate_only:
+        log("--generate-only: won't run Synapse")
+        return
+
     # Lifted right out of start.py
     jemallocpath = "/usr/lib/%s-linux-gnu/libjemalloc.so.2" % (platform.machine(),)
 
@@ -1087,4 +1113,4 @@ def main(args: List[str], environ: MutableMapping[str, str]) -> None:
 
 
 if __name__ == "__main__":
-    main(sys.argv, os.environ)
+    main(sys.argv[1:], os.environ)
